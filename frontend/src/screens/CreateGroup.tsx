@@ -16,7 +16,7 @@ export function CreateGroup() {
   const nav = useNavigate();
   const [name, setName] = useState('');
   const [type, setType] = useState('trip');
-  const [rotation, setRotation] = useState(false);
+  const [rotation, setRotation] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 

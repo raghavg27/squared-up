@@ -1,15 +1,69 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Icon } from '../ui.js';
 import { Logo } from './Loading.js';
 import { apiClient, ApiError } from '../api.js';
+import { useStore } from '../store.js';
+
+// OAuth Web client ID, injected at build time (frontend/.env: VITE_GOOGLE_CLIENT_ID).
+// Empty → Google button falls back to phone sign-in.
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+
+interface GoogleId {
+  initialize: (o: { client_id: string; callback: (r: { credential: string }) => void }) => void;
+  renderButton: (parent: HTMLElement, options: Record<string, unknown>) => void;
+}
+function gsi(): GoogleId | undefined {
+  return (window as unknown as { google?: { accounts?: { id?: GoogleId } } }).google?.accounts?.id;
+}
 
 export function Login() {
   const nav = useNavigate();
+  const { loginWith } = useStore();
   const [step, setStep] = useState<'intro' | 'phone'>('intro');
   const [phone, setPhone] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const googleBtnRef = useRef<HTMLDivElement>(null);
+
+  // Load Google Identity Services and render the official sign-in button.
+  // renderButton uses a popup flow — unlike One Tap prompt() it is not
+  // suppressed by FedCM / third-party-cookie blocking.
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID) return;
+    let cancelled = false;
+    function init() {
+      const id = gsi();
+      const el = googleBtnRef.current;
+      if (cancelled || !id || !el) return;
+      id.initialize({
+        client_id: GOOGLE_CLIENT_ID!,
+        callback: async ({ credential }) => {
+          setBusy(true); setErr(null);
+          try {
+            const r = await apiClient.googleLogin(credential);
+            loginWith(r);
+            nav(r.is_new || !r.user.name?.trim() ? '/onboarding' : '/', { replace: true });
+          } catch (e) {
+            setErr(e instanceof ApiError ? e.message : 'Google sign-in failed');
+            setBusy(false);
+          }
+        },
+      });
+      const width = Math.min(400, Math.max(200, el.offsetWidth || 300));
+      id.renderButton(el, {
+        type: 'standard', theme: 'outline', size: 'large',
+        text: 'signin_with', shape: 'pill', logo_alignment: 'center', width,
+      });
+    }
+    if (gsi()) { init(); return () => { cancelled = true; }; }
+    const s = document.createElement('script');
+    s.src = 'https://accounts.google.com/gsi/client';
+    s.async = true; s.defer = true;
+    s.onload = init;
+    document.head.appendChild(s);
+    return () => { cancelled = true; };
+  }, [loginWith, nav]);
 
   async function sendOtp() {
     if (busy) return;
@@ -50,14 +104,17 @@ export function Login() {
               <div className="h-px flex-1 bg-neutral-300" />
             </div>
 
-            <div className="w-full max-w-[28rem] grid grid-cols-2 gap-4">
-              <button onClick={() => setStep('phone')} className="h-[52px] rounded-button border border-neutral-300 bg-surface-container-lowest flex items-center justify-center gap-2 font-body text-[15px] font-medium text-ink active:scale-[0.98] transition-transform">
-                <GoogleG /> Google
-              </button>
-              <button onClick={() => setStep('phone')} className="h-[52px] rounded-button border border-neutral-300 bg-surface-container-lowest flex items-center justify-center gap-2 font-body text-[15px] font-medium text-ink active:scale-[0.98] transition-transform">
-                <AppleLogo /> Apple
-              </button>
+            <div className="w-full max-w-[28rem] flex justify-center">
+              {GOOGLE_CLIENT_ID ? (
+                // Google Identity Services renders its own button into this div.
+                <div ref={googleBtnRef} className="h-[52px] flex items-center justify-center [color-scheme:light]" />
+              ) : (
+                <button onClick={() => setStep('phone')} disabled={busy} className="w-full h-[52px] rounded-button border border-neutral-300 bg-surface-container-lowest flex items-center justify-center gap-2 font-body text-[15px] font-medium text-ink active:scale-[0.98] transition-transform disabled:opacity-60">
+                  <GoogleG /> Google
+                </button>
+              )}
             </div>
+            {err && <p className="text-primary font-caption text-caption mt-3 text-center">{err}</p>}
           </>
         ) : (
           <div className="w-full max-w-[28rem] mt-10">
@@ -96,14 +153,6 @@ export function Login() {
         </span>
       </div>
     </div>
-  );
-}
-
-function AppleLogo() {
-  return (
-    <svg width="16" height="18" viewBox="0 0 24 24" fill="#1a1c1b" aria-hidden>
-      <path d="M17.05 12.04c-.03-2.6 2.12-3.85 2.22-3.91-1.21-1.77-3.1-2.01-3.77-2.04-1.6-.16-3.13.94-3.94.94-.81 0-2.07-.92-3.4-.9-1.75.03-3.36 1.02-4.26 2.58-1.82 3.15-.46 7.8 1.3 10.35.86 1.25 1.88 2.65 3.22 2.6 1.29-.05 1.78-.83 3.34-.83 1.55 0 2 .83 3.37.81 1.39-.03 2.27-1.27 3.12-2.53.98-1.45 1.38-2.86 1.4-2.93-.03-.01-2.69-1.03-2.72-4.07M14.53 4.42c.71-.86 1.19-2.06 1.06-3.25-1.02.04-2.26.68-2.99 1.54-.66.76-1.23 1.98-1.08 3.15 1.14.09 2.3-.58 3.01-1.44" />
-    </svg>
   );
 }
 

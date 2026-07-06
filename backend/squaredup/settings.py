@@ -20,6 +20,10 @@ def env_bool(key: str, default: bool) -> bool:
 
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-insecure-change-me")
+# OAuth: Google Sign-In. Empty = feature disabled (endpoint returns a clear
+# error). Set to the OAuth 2.0 Web client ID from Google Cloud Console; it must
+# match the client_id the frontend initializes GIS with.
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 DEBUG = env_bool("DJANGO_DEBUG", True)
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 

@@ -10,6 +10,7 @@ import re
 import secrets
 from datetime import timedelta
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -100,5 +101,47 @@ def verify_otp(raw_phone: str, code: str) -> dict:
     if is_new:
         # Placeholder name until onboarding; user fills it in next.
         user = User.objects.create(phone=phone, name="")
+
+    return {"is_new": is_new, "user": user_to_dict(user), **issue_tokens(user.id)}
+
+
+@transaction.atomic
+def google_login(credential: str) -> dict:
+    """Verify a Google ID token (the ``credential`` a GIS client returns) and
+    log the holder in, creating the User on first sign-in. Identity is keyed on
+    the verified Google email, so a Google account and a phone account that
+    share an email resolve to the same User."""
+    if not isinstance(credential, str) or not credential.strip():
+        raise DomainError("VALIDATION_ERROR", "google credential is required")
+
+    client_id = getattr(settings, "GOOGLE_CLIENT_ID", "")
+    if not client_id:
+        raise DomainError("CONFIG_ERROR", "Google sign-in is not configured")
+
+    # Imported lazily so the dependency is only needed when the feature is used.
+    from google.auth.transport import requests as google_requests
+    from google.oauth2 import id_token
+
+    try:
+        info = id_token.verify_oauth2_token(
+            credential.strip(), google_requests.Request(), client_id
+        )
+    except ValueError:
+        # Bad signature, wrong audience, expired, or malformed token.
+        raise DomainError("INVALID_CREDENTIAL", "could not verify Google sign-in")
+
+    email = info.get("email")
+    if not email or not info.get("email_verified"):
+        raise DomainError("INVALID_CREDENTIAL", "Google account email is not verified")
+    email = email.strip().lower()
+
+    user = User.objects.filter(email=email).first()
+    is_new = user is None
+    if is_new:
+        user = User.objects.create(
+            email=email,
+            name=info.get("name") or "",
+            avatar_url=info.get("picture"),
+        )
 
     return {"is_new": is_new, "user": user_to_dict(user), **issue_tokens(user.id)}

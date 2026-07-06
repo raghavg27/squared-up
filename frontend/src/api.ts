@@ -124,6 +124,7 @@ export const apiClient = {
   // Auth
   requestOtp: (phone: string) => req<OtpRequestResult>('/auth/request-otp', { method: 'POST', body: JSON.stringify({ phone }) }),
   verifyOtp: (phone: string, code: string) => req<AuthResult>('/auth/verify-otp', { method: 'POST', body: JSON.stringify({ phone, code }) }),
+  googleLogin: (credential: string) => req<AuthResult>('/auth/google', { method: 'POST', body: JSON.stringify({ credential }) }),
   me: () => req<User>('/auth/me'),
   updateMe: (input: Partial<User>) => req<User>('/auth/me', { method: 'PATCH', body: JSON.stringify(input) }),
 

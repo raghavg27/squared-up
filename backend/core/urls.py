@@ -8,6 +8,7 @@ urlpatterns = [
     # ── Auth (public) ──
     path("auth/request-otp", views_auth.request_otp),
     path("auth/verify-otp", views_auth.verify_otp),
+    path("auth/google", views_auth.google_login),
     path("auth/refresh", views_auth.refresh_token),
     path("auth/me", views_auth.me),  # GET / PATCH
 

@@ -36,6 +36,9 @@ services:
       TWILIO_FROM: ${TWILIO_FROM:-}
       TWILIO_MESSAGING_SERVICE_SID: ${TWILIO_MESSAGING_SERVICE_SID:-}
       CORS_ALLOW_ALL_ORIGINS: ${CORS_ALLOW_ALL_ORIGINS:-0}
+      # Google Sign-In. Empty → feature disabled. Must equal the frontend's
+      # VITE_GOOGLE_CLIENT_ID below (same OAuth Web client ID).
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       # Seed demo users/groups on first boot (idempotent). Set 0 to skip.
       SEED_DEMO: ${SEED_DEMO:-1}
     depends_on:
@@ -43,7 +46,10 @@ services:
         condition: service_healthy
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     ports:
       - '8080:80'
     depends_on:

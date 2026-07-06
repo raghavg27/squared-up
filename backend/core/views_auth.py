@@ -28,6 +28,13 @@ def verify_otp(request):
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
+def google_login(request):
+    credential = request.data.get("credential")
+    return Response(auth_service.google_login(credential))
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
 def refresh_token(request):
     token = request.data.get("refresh")
     if not token:
