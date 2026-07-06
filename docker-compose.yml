@@ -1,0 +1,53 @@
+# Full-stack local/prod-shaped deployment: Postgres + Django (gunicorn) + the
+# built frontend behind nginx. `docker compose up --build` brings up the whole
+# app at http://localhost:8080. Deploy region target: ap-south-1 (Mumbai).
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-squaredup}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-squaredup}
+      POSTGRES_DB: ${POSTGRES_DB:-squaredup}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-squaredup}']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-in-prod-please-32-bytes-min}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-0}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: '5432'
+      POSTGRES_USER: ${POSTGRES_USER:-squaredup}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-squaredup}
+      POSTGRES_DB: ${POSTGRES_DB:-squaredup}
+      # 'console' logs OTP codes (and returns dev_code) so the demo is usable
+      # without an SMS gateway. Swap for a real provider in production.
+      SMS_PROVIDER: ${SMS_PROVIDER:-console}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_API_KEY_SID: ${TWILIO_API_KEY_SID:-}
+      TWILIO_API_KEY_SECRET: ${TWILIO_API_KEY_SECRET:-}
+      TWILIO_FROM: ${TWILIO_FROM:-}
+      TWILIO_MESSAGING_SERVICE_SID: ${TWILIO_MESSAGING_SERVICE_SID:-}
+      CORS_ALLOW_ALL_ORIGINS: ${CORS_ALLOW_ALL_ORIGINS:-0}
+      # Seed demo users/groups on first boot (idempotent). Set 0 to skip.
+      SEED_DEMO: ${SEED_DEMO:-1}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    ports:
+      - '8080:80'
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
