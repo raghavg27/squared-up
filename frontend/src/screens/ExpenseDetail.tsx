@@ -36,16 +36,9 @@ export function ExpenseDetail() {
   }
 
   useEffect(() => {
-    if (exp) return;
-    // Deep-link fallback: scan groups for the expense.
-    (async () => {
-      for (const g of groups) {
-        const es = await apiClient.expenses(g.id).catch(() => []);
-        const found = es.find((e) => e.id === expId);
-        if (found) { setExp(found); return; }
-      }
-    })();
-  }, [exp, expId, groups]);
+    // Always refetch: nav state can be stale after an edit.
+    apiClient.expense(expId).then(setExp).catch(() => {});
+  }, [expId]);
 
   if (!exp) {
     return (
@@ -58,7 +51,8 @@ export function ExpenseDetail() {
   const grp = groups.find((g) => g.id === exp.group_id);
   const gName = groupName ?? grp?.name ?? 'Group';
   const gStyle = groupTypeStyle(grp?.type ?? 'other');
-  const date = new Date(exp.created_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' });
+  const addedBy = exp.created_by ?? payer?.user_id;
+  const date = new Date(exp.expense_date ?? exp.created_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' });
 
   return (
     <div className="min-h-screen bg-paper pb-10">
@@ -77,7 +71,7 @@ export function ExpenseDetail() {
           <Icon name={cat.icon} fill style={{ fontSize: 30 }} />
         </div>
         <h2 className="font-heading text-[22px] font-semibold text-ink mt-3">{exp.description}</h2>
-        <p className="font-body text-[15px] text-on-surface-variant mt-1">Added by {payer ? name(payer.user_id) : '—'} on {date}</p>
+        <p className="font-body text-[15px] text-on-surface-variant mt-1">Added by {addedBy === me?.id ? 'you' : addedBy ? name(addedBy) : '—'} on {date}</p>
         <p className="font-heading text-[40px] font-bold text-ink tnum mt-2">{rupees(exp.amount_paise)}</p>
       </div>
 

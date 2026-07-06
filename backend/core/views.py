@@ -57,13 +57,17 @@ def users(request):
     query = request.query_params.get("query")
     if query is not None:
         return Response(services.search_users(query, exclude_id=_actor(request)))
-    return Response(services.list_users())
+    return Response(services.list_users(_actor(request)))
 
 
 @api_view(["GET"])
 def user_detail(request, pk: int):
     u = services.get_user(pk)
     if not u:
+        raise not_found("user not found")
+    # Only expose contact details of people the caller already knows.
+    visible = {v["id"] for v in services.list_users(_actor(request))}
+    if pk not in visible:
         raise not_found("user not found")
     return Response(u)
 
@@ -85,18 +89,13 @@ def groups(request):
     if request.method == "POST":
         g = services.create_group(validate_create_group(_with_actor(request, "created_by")))
         return Response(services.get_group(g["id"]), status=201)
-    # Default to the caller's groups; ?all=1 lists everything (admin/testing).
-    if request.query_params.get("all"):
-        return Response(services.list_groups(None))
     return Response(services.list_groups(_actor(request)))
 
 
 @api_view(["GET"])
 def groups_detail(request, pk: int):
-    g = services.get_group(pk)
-    if not g:
-        raise not_found("group not found")
-    return Response(g)
+    services.require_group_member(pk, _actor(request))
+    return Response(services.get_group(pk))
 
 
 @api_view(["POST"])
@@ -122,6 +121,7 @@ def expenses_create(request):
 
 @api_view(["GET"])
 def group_expenses(request, pk: int):
+    services.require_group_member(pk, _actor(request))
     return Response(services.list_group_expenses(pk))
 
 
@@ -133,10 +133,7 @@ def expense_detail(request, pk: int):
     if request.method == "DELETE":
         services.soft_delete_expense(pk, _actor(request))
         return Response(status=204)
-    e = services.get_expense(pk)
-    if not e:
-        raise not_found("expense not found")
-    return Response(e)
+    return Response(services.get_expense(pk, _actor(request)))
 
 
 @api_view(["POST"])
@@ -152,17 +149,19 @@ def expense_comments(request, pk: int):
         if not isinstance(body, str):
             raise bad_request("VALIDATION_ERROR", "body (string) is required")
         return Response(services.add_comment(pk, _actor(request), body), status=201)
-    return Response(services.list_comments(pk))
+    return Response(services.list_comments(pk, _actor(request)))
 
 
 # ── Balances & Turn ──
 @api_view(["GET"])
 def group_balances(request, pk: int):
+    services.require_group_member(pk, _actor(request))
     return Response(services.group_balances(pk))
 
 
 @api_view(["GET"])
 def group_turn(request, pk: int):
+    services.require_group_member(pk, _actor(request))
     return Response(services.whose_turn(pk))
 
 
@@ -179,12 +178,12 @@ def settlements(request):
 
 @api_view(["PATCH"])
 def settlements_confirm(request, pk: int):
-    return Response(services.confirm_settlement(pk))
+    return Response(services.confirm_settlement(pk, _actor(request)))
 
 
 @api_view(["PATCH"])
 def settlements_dispute(request, pk: int):
-    return Response(services.dispute_settlement(pk))
+    return Response(services.dispute_settlement(pk, _actor(request)))
 
 
 # ── AI: NL entry (draft only) + categorize ──

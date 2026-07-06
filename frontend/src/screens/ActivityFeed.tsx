@@ -10,19 +10,51 @@ interface Row {
   title: string; sub: string; amount?: number; note?: string; noteColor?: string; due?: boolean;
 }
 
-function render(a: ActivityEvent, name: (id: number) => string): Row {
-  const actor = name(a.actor);
+function render(
+  a: ActivityEvent,
+  name: (id: number) => string,
+  meId: number | undefined,
+  groupName: (gid: unknown) => string | undefined,
+): Row {
+  const isMe = a.actor === meId;
+  const actor = isMe ? 'You' : name(a.actor);
   const p = a.payload || {};
   const amt = typeof p.amount_paise === 'number' ? (p.amount_paise as number) : undefined;
   const desc = (p.description as string) || (p.name as string) || '';
+  const gname = groupName(p.group_id);
+
   if (a.type.startsWith('settlement')) {
-    return { id: a.id, icon: 'handshake', tint: 'bg-teal/15', fg: 'text-tertiary', title: `${actor} settled with you`, sub: (p.group as string) || 'Settled', amount: amt, note: 'You received', noteColor: 'text-success' };
+    const toMe = p.to === meId;
+    const other = typeof p.to === 'number' ? (toMe ? 'you' : name(p.to as number)) : 'someone';
+    const title =
+      a.type === 'settlement.confirmed'
+        ? `${actor} confirmed a payment to ${other}`
+        : a.type === 'settlement.disputed'
+          ? `${actor} disputed a payment to ${other}`
+          : `${actor} paid ${other}`;
+    return {
+      id: a.id, icon: 'handshake', tint: 'bg-teal/15', fg: 'text-tertiary',
+      title, sub: gname ?? 'Settlement', amount: amt,
+      note: toMe ? 'You received' : isMe ? 'You paid' : undefined,
+      noteColor: toMe ? 'text-success' : 'text-on-surface-variant',
+    };
+  }
+  if (a.type === 'group.member_added' || a.type === 'group.member_removed') {
+    const who = p.user_id === meId ? 'you' : typeof p.user_id === 'number' ? name(p.user_id as number) : 'someone';
+    const verb = a.type.endsWith('added') ? 'added' : 'removed';
+    return { id: a.id, icon: 'group_add', tint: 'bg-surface-container-high', fg: 'text-secondary', title: `${actor} ${verb} ${who}`, sub: gname ?? 'Group update' };
   }
   if (a.type.startsWith('group')) {
-    return { id: a.id, icon: 'group_add', tint: 'bg-surface-container-high', fg: 'text-secondary', title: `${actor} created '${desc}'`, sub: p.members ? `Added ${p.members} members` : 'New group' };
+    return { id: a.id, icon: 'group_add', tint: 'bg-surface-container-high', fg: 'text-secondary', title: `${actor} created '${desc}'`, sub: 'New group' };
   }
-  // expense.created and friends
-  return { id: a.id, icon: 'restaurant', tint: 'bg-secondary-container', fg: 'text-secondary', title: `${actor} added ${desc || 'an expense'}`, sub: (p.group as string) || 'Expense', amount: amt, note: 'You owe', noteColor: 'text-on-surface-variant' };
+  if (a.type === 'comment.created') {
+    return { id: a.id, icon: 'chat_bubble', tint: 'bg-sky/10', fg: 'text-sky', title: `${actor} commented on ${desc || 'an expense'}`, sub: gname ?? 'Comment' };
+  }
+  if (a.type === 'expense.deleted') {
+    return { id: a.id, icon: 'delete', tint: 'bg-surface-container-high', fg: 'text-secondary', title: `${actor} deleted ${desc || 'an expense'}`, sub: gname ?? 'Expense removed', amount: amt };
+  }
+  const verb = a.type === 'expense.updated' ? 'updated' : 'added';
+  return { id: a.id, icon: 'receipt_long', tint: 'bg-secondary-container', fg: 'text-secondary', title: `${actor} ${verb} ${desc || 'an expense'}`, sub: gname ?? 'Expense', amount: amt };
 }
 
 function bucket(iso: string): string {
@@ -35,15 +67,17 @@ function bucket(iso: string): string {
 }
 
 export function ActivityFeed() {
-  const { me, name } = useStore();
+  const { me, name, groups } = useStore();
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [q, setQ] = useState('');
 
   useEffect(() => { apiClient.activity().then(setEvents).catch(() => {}); }, []);
 
+  const groupName = (gid: unknown) => (typeof gid === 'number' ? groups.find((g) => g.id === gid)?.name : undefined);
+
   const grouped = useMemo(() => {
     const rows = events
-      .map((e) => ({ e, r: render(e, name) }))
+      .map((e) => ({ e, r: render(e, name, me?.id, groupName) }))
       .filter(({ r }) => r.title.toLowerCase().includes(q.toLowerCase()) || r.sub.toLowerCase().includes(q.toLowerCase()));
     const map = new Map<string, { e: ActivityEvent; r: Row }[]>();
     for (const item of rows) {
@@ -62,7 +96,7 @@ export function ActivityFeed() {
         <Link to="/profile"><Avatar name={me?.name ?? ''} size={36} /></Link>
       </header>
 
-      <main className="px-mobile flex flex-col gap-4">
+      <main className="px-mobile flex flex-col gap-4 stagger">
         <h2 className="font-heading text-[32px] font-bold text-ink mt-2">Activity</h2>
 
         <div className="relative">
@@ -87,7 +121,7 @@ export function ActivityFeed() {
                 {r.amount !== undefined && (
                   <div className="flex flex-col items-end shrink-0 pl-2">
                     <span className={`font-currency text-[17px] tnum ${r.noteColor === 'text-success' ? 'text-success' : 'text-ink'}`}>
-                      {r.noteColor === 'text-success' ? '+' : r.note === 'You owe' ? '-' : ''}{rupees(r.amount)}
+                      {r.noteColor === 'text-success' ? '+' : r.note === 'You paid' ? '-' : ''}{rupees(r.amount)}
                     </span>
                     <span className={`text-[11px] font-medium ${r.noteColor}`}>{r.note}</span>
                   </div>

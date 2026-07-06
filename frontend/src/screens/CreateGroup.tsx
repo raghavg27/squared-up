@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient, ApiError, type User } from '../api.js';
 import { useStore } from '../store.js';
-import { Avatar, Icon } from '../ui.js';
+import { Avatar, Icon, InviteCard } from '../ui.js';
 
 const TYPES = [
   { key: 'trip', label: 'Trip', icon: 'flight_takeoff' },
@@ -12,7 +12,7 @@ const TYPES = [
 ];
 
 export function CreateGroup() {
-  const { me, reloadGroups } = useStore();
+  const { me, reloadGroups, reloadUsers } = useStore();
   const nav = useNavigate();
   const [name, setName] = useState('');
   const [type, setType] = useState('trip');
@@ -24,7 +24,6 @@ export function CreateGroup() {
   const [results, setResults] = useState<User[]>([]);
   const [friends, setFriends] = useState<User[]>([]);
   const [picked, setPicked] = useState<User[]>([]);
-  const [inviting, setInviting] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => { apiClient.friends().then(setFriends).catch(() => {}); }, []);
@@ -44,18 +43,6 @@ export function CreateGroup() {
   function pick(u: User) { setPicked((p) => [...p, u]); }
   function unpick(id: number) { setPicked((p) => p.filter((u) => u.id !== id)); }
 
-  async function invite() {
-    const query = q.trim();
-    if (!query || inviting) return;
-    setInviting(true); setErr(null);
-    try {
-      const isPhone = /^[+0-9\s-]{8,}$/.test(query);
-      const u = await apiClient.createUser(isPhone ? { name: 'Invited', phone: query } : { name: query });
-      setPicked((p) => [...p, u]); setQ('');
-    } catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not invite'); }
-    finally { setInviting(false); }
-  }
-
   async function create() {
     if (!me || busy) return;
     if (!name.trim()) { setErr('Give your group a name'); return; }
@@ -66,8 +53,9 @@ export function CreateGroup() {
         rotation_enabled: rotation, rotation_mode: 'balanced',
       });
       reloadGroups();
+      reloadUsers();
       nav(`/groups/${g.id}`, { replace: true });
-    } catch (e) { setErr(String(e)); setBusy(false); }
+    } catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not create the group — try again'); setBusy(false); }
   }
 
   return (
@@ -161,10 +149,7 @@ export function CreateGroup() {
           )}
 
           {q.trim().length >= 2 && suggestions.length === 0 && (
-            <button onClick={invite} disabled={inviting} className="border border-dashed border-neutral-300 rounded-card py-5 flex flex-col items-center gap-1 text-primary active:scale-[0.99] transition-transform disabled:opacity-60">
-              <Icon name="person_add" style={{ fontSize: 24 }} />
-              <span className="font-body text-[15px] font-medium">Invite "{q.trim()}"</span>
-            </button>
+            <InviteCard query={q} onInvite={(u) => { setPicked((p) => [...p, u]); setQ(''); }} />
           )}
           {q.trim().length < 2 && picked.length === 0 && suggestions.length === 0 && (
             <div className="border border-dashed border-neutral-300 rounded-card py-8 flex flex-col items-center gap-2 text-neutral-600 bg-surface-container-low/40">
@@ -196,7 +181,7 @@ export function CreateGroup() {
         {err && <p className="text-danger font-body text-[13px]">{err}</p>}
       </main>
 
-      <div className="fixed bottom-0 left-0 right-0 max-w-[28rem] mx-auto px-mobile pb-5 pt-3 bg-gradient-to-t from-paper via-paper to-transparent">
+      <div className="fixed bottom-0 left-0 right-0 max-w-[28rem] mx-auto px-mobile pb-5 pt-3 safe-bottom bg-gradient-to-t from-paper via-paper to-transparent">
         <button onClick={create} disabled={busy} className="w-full h-[56px] bg-primary text-on-primary rounded-button font-heading text-[17px] font-bold active:scale-[0.98] transition-transform disabled:opacity-60">
           {busy ? 'Creating…' : 'Create Group'}
         </button>

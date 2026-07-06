@@ -17,8 +17,10 @@ CATEGORY_RULES = [
     (re.compile(r"\b(electricity|water|wifi|internet|gas|bill|recharge)\b", re.I), "Utilities"),
 ]
 
+_MARKED_AMOUNT_RE = re.compile(r"(?:₹|rs\.?|inr)\s*(\d+(?:\.\d{1,2})?)", re.I)
 _AMOUNT_RE = re.compile(r"(?:₹|rs\.?|inr)?\s*(\d+(?:\.\d{1,2})?)", re.I)
-_I_PAID_RE = re.compile(r"\b(i paid|i pay|mera|maine|mai|main)\b", re.I)
+_I_PAID_RE = re.compile(r"\b(i paid|i pay|i'?ve paid|i'?ll pay|paid by me|mera|maine|mai|main)\b", re.I)
+_OTHER_PAID_RE = re.compile(r"\b[A-Z][a-z]+ paid\b")
 _NAME_RE = re.compile(r"\b[A-Z][a-z]+\b")
 _FILLER_RE = re.compile(r"\b(i paid|split with|ke saath|baaki|mera|ka|ke|with|and)\b", re.I)
 _STOP_NAMES = {"I", "Rs", "INR", "Split", "Paid"}
@@ -38,11 +40,19 @@ def parse_natural_language(text: str) -> dict:
     "chai ke 200 Rahul ke saath", "auto 150 mera, baaki Priya ka".
     Always shown for confirmation before any write.
     """
-    amount_match = _AMOUNT_RE.search(text)
+    # Prefer a currency-marked number ("₹450", "rs 450"); otherwise take the
+    # largest bare number so "split 3 ways 900" reads 900, not 3.
+    amount_match = _MARKED_AMOUNT_RE.search(text)
+    if not amount_match:
+        candidates = list(_AMOUNT_RE.finditer(text))
+        amount_match = max(candidates, key=lambda m: float(m.group(1)), default=None)
     rupees = float(amount_match.group(1)) if amount_match else None
     amount_paise = round(rupees * 100) if rupees is not None else None
 
-    i_paid = bool(_I_PAID_RE.search(text))
+    # "paid ..." with no other payer named counts as the speaker paying.
+    i_paid = bool(_I_PAID_RE.search(text)) or (
+        bool(re.search(r"\bpaid\b", text, re.I)) and not _OTHER_PAID_RE.search(text)
+    )
 
     seen = []
     for n in _NAME_RE.findall(text):

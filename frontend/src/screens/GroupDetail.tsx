@@ -19,16 +19,20 @@ export function GroupDetail() {
   const reload = useCallback(() => {
     apiClient.group(groupId).then(setGroup).catch(() => {});
     apiClient.balances(groupId).then(setBalances).catch(() => {});
-    apiClient.expenses(groupId).then((e) => setExpenses(e.slice(0, 8))).catch(() => {});
+    apiClient.expenses(groupId).then(setExpenses).catch(() => {});
     apiClient.turn(groupId).then(setTurn).catch(() => setTurn(null));
   }, [groupId]);
   useEffect(reload, [reload]);
 
   const myNet = balances?.members.find((m) => m.user_id === me?.id)?.net_paise ?? 0;
   const owe = myNet < 0;
-  const total = expenses.reduce((s, e) => s + e.amount_paise, 0);
-  const myShare = expenses.reduce((s, e) => s + (e.shares.find((sh) => sh.user_id === me?.id)?.owed_paise ?? 0), 0);
+  // "This month" really means this calendar month, over the full expense list.
+  const monthKey = new Date().toISOString().slice(0, 7);
+  const thisMonth = expenses.filter((e) => (e.expense_date ?? e.created_at).slice(0, 7) === monthKey);
+  const total = thisMonth.reduce((s, e) => s + e.amount_paise, 0);
+  const myShare = thisMonth.reduce((s, e) => s + (e.shares.find((sh) => sh.user_id === me?.id)?.owed_paise ?? 0), 0);
   const sharePct = total > 0 ? Math.round((myShare / total) * 100) : 0;
+  const recent = expenses.slice(0, 8);
   const myDebts = balances?.simplified_settlements.filter((s) => s.from_user === me?.id) ?? [];
   const topDebt = myDebts.slice().sort((a, b) => b.amount_paise - a.amount_paise)[0];
   const [nudged, setNudged] = useState(false);
@@ -53,7 +57,7 @@ export function GroupDetail() {
         </button>
       </header>
 
-      <main className="px-mobile flex flex-col gap-5">
+      <main className="px-mobile flex flex-col gap-5 stagger">
         {/* Turn to Pay */}
         {turn && (
           <div className="bg-primary/10 rounded-card p-4 flex items-center gap-3">
@@ -100,9 +104,14 @@ export function GroupDetail() {
 
         {/* Recent Activity */}
         <section className="flex flex-col gap-3">
-          <h3 className="font-heading text-[22px] font-bold text-ink">Recent Activity</h3>
+          <div className="flex justify-between items-center">
+            <h3 className="font-heading text-[22px] font-bold text-ink">Recent Activity</h3>
+            {expenses.length > 8 && (
+              <Link to={`/groups/${groupId}/expenses`} className="font-body text-[15px] text-primary font-medium">View all</Link>
+            )}
+          </div>
           <div className="flex flex-col gap-3">
-            {expenses.map((e) => {
+            {recent.map((e) => {
               const cat = categoryFor(e.description);
               const payer = e.shares.find((s) => s.paid_paise > 0);
               const iPaid = payer?.user_id === me?.id;
@@ -121,7 +130,7 @@ export function GroupDetail() {
                   <div className="flex flex-col items-end shrink-0 pl-2">
                     <span className="font-currency text-[17px] font-medium text-ink tnum">{rupees0(e.amount_paise)}</span>
                     <span className={`text-[11px] font-medium ${net > 0 ? 'text-success' : net < 0 ? 'text-primary' : 'text-neutral-600'}`}>
-                      {net > 0 ? `Lent ${rupees0(net)}` : net < 0 ? `You owe ${rupees0(-net)}` : 'Settled'}
+                      {net > 0 ? `Lent ${rupees0(net)}` : net < 0 ? `Borrowed ${rupees0(-net)}` : 'Settled'}
                     </span>
                   </div>
                 </Link>
@@ -133,7 +142,7 @@ export function GroupDetail() {
       </main>
 
       {/* Settle Up bar */}
-      <div className="fixed bottom-0 left-0 right-0 max-w-[28rem] mx-auto px-mobile pb-5 pt-3 bg-gradient-to-t from-paper via-paper to-transparent">
+      <div className="fixed bottom-0 left-0 right-0 max-w-[28rem] mx-auto px-mobile pb-5 pt-3 safe-bottom bg-gradient-to-t from-paper via-paper to-transparent">
         <button
           onClick={() => topDebt ? nav(`/settle/${groupId}/${topDebt.to_user}`) : nav(`/groups/${groupId}/add`)}
           className="w-full h-[52px] bg-primary text-on-primary rounded-button font-heading text-[17px] font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"

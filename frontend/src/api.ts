@@ -12,7 +12,7 @@ export interface Group {
   rotation_enabled: boolean; rotation_mode: 'balanced' | 'round_robin';
 }
 export interface Share { user_id: number; paid_paise: number; owed_paise: number; net_paise: number }
-export interface Expense { id: number; description: string; amount_paise: number; is_rotation: boolean; shares: Share[]; created_at: string; group_id: number | null }
+export interface Expense { id: number; description: string; amount_paise: number; is_rotation: boolean; shares: Share[]; created_at: string; group_id: number | null; expense_date?: string; created_by?: number }
 export interface Balances {
   group_id: number;
   members: { user_id: number; net_paise: number }[];

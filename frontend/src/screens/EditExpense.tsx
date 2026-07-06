@@ -51,7 +51,7 @@ export function EditExpense() {
         description: desc.trim() || 'Expense',
         amount_paise: amountPaise,
         currency: 'INR',
-        expense_date: exp.created_at.slice(0, 10),
+        expense_date: exp.expense_date ?? exp.created_at.slice(0, 10),
         payers: [{ user_id: payer, paid_paise: amountPaise }],
         split: { type: 'equal', participants },
       });

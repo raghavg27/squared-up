@@ -2,19 +2,39 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient, type User } from '../api.js';
 import { useStore } from '../store.js';
+import { rupees } from '../format.js';
 import { Avatar, Icon } from '../ui.js';
 
 export function Friends() {
   const nav = useNavigate();
-  const { me } = useStore();
+  const { me, groups } = useStore();
   const [friends, setFriends] = useState<User[]>([]);
   const [q, setQ] = useState('');
   const [results, setResults] = useState<User[]>([]);
   const [searching, setSearching] = useState(false);
+  // person id → net paise from my point of view (+ they owe me, − I owe them)
+  const [nets, setNets] = useState<Map<number, number>>(new Map());
   const timer = useRef<ReturnType<typeof setTimeout>>();
 
   const load = () => apiClient.friends().then(setFriends).catch(() => {});
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    if (!me) return;
+    let cancelled = false;
+    Promise.all(groups.map((g) => apiClient.balances(g.id).catch(() => null))).then((rows) => {
+      if (cancelled) return;
+      const m = new Map<number, number>();
+      for (const b of rows) {
+        for (const s of b?.simplified_settlements ?? []) {
+          if (s.from_user === me.id) m.set(s.to_user, (m.get(s.to_user) ?? 0) - s.amount_paise);
+          if (s.to_user === me.id) m.set(s.from_user, (m.get(s.from_user) ?? 0) + s.amount_paise);
+        }
+      }
+      setNets(m);
+    });
+    return () => { cancelled = true; };
+  }, [me, groups]);
 
   useEffect(() => {
     clearTimeout(timer.current);
@@ -69,11 +89,23 @@ export function Friends() {
         ) : (
           <div className="flex flex-col gap-3">
             <h3 className="font-caption text-caption text-on-surface-variant">Your friends</h3>
-            {friends.map((u) => (
-              <Row key={u.id} u={u}>
-                <Icon name="chevron_right" className="text-neutral-300" style={{ fontSize: 24 }} />
-              </Row>
-            ))}
+            {friends.map((u) => {
+              const net = nets.get(u.id) ?? 0;
+              return (
+                <Row key={u.id} u={u}>
+                  {net === 0 ? (
+                    <span className="font-caption text-caption text-neutral-600">Settled</span>
+                  ) : (
+                    <div className="flex flex-col items-end">
+                      <span className={`font-currency text-[15px] font-semibold tnum ${net > 0 ? 'text-success' : 'text-primary'}`}>
+                        {net > 0 ? '+' : '-'}{rupees(Math.abs(net))}
+                      </span>
+                      <span className="font-caption text-caption text-neutral-600">{net > 0 ? 'owes you' : 'you owe'}</span>
+                    </div>
+                  )}
+                </Row>
+              );
+            })}
             {friends.length === 0 && <Empty icon="group_add" text="No friends yet. Search above to add people you split with." />}
           </div>
         )}

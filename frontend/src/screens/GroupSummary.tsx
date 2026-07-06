@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { apiClient, type Balances, type Group } from '../api.js';
+import { apiClient, type Balances, type Expense, type Group } from '../api.js';
 import { useStore } from '../store.js';
-import { rupees } from '../format.js';
-import { Avatar, Icon } from '../ui.js';
+import { rupees, rupees0 } from '../format.js';
+import { Avatar, Icon, categoryFor } from '../ui.js';
 
 export function GroupSummary() {
   const { id } = useParams();
@@ -12,15 +12,32 @@ export function GroupSummary() {
   const { me, name } = useStore();
   const [group, setGroup] = useState<Group | null>(null);
   const [balances, setBalances] = useState<Balances | null>(null);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
 
   useEffect(() => {
     apiClient.group(gid).then(setGroup).catch(() => {});
     apiClient.balances(gid).then(setBalances).catch(() => {});
+    apiClient.expenses(gid).then(setExpenses).catch(() => {});
   }, [gid]);
 
   const members = balances?.members ?? [];
   const settlements = balances?.simplified_settlements ?? [];
   const allSettled = members.every((m) => m.net_paise === 0);
+
+  // Client-side category insight from descriptions — no backend change needed.
+  const catBreakdown = useMemo(() => {
+    const map = new Map<string, { label: string; icon: string; tint: string; fg: string; bar: string; total: number }>();
+    let grand = 0;
+    for (const e of expenses) {
+      const c = categoryFor(e.description);
+      grand += e.amount_paise;
+      const cur = map.get(c.label) ?? { ...c, total: 0 };
+      cur.total += e.amount_paise;
+      map.set(c.label, cur);
+    }
+    const rows = [...map.values()].sort((a, b) => b.total - a.total).slice(0, 5);
+    return { rows, grand };
+  }, [expenses]);
 
   return (
     <div className="min-h-screen pb-10 bg-paper">
@@ -32,7 +49,7 @@ export function GroupSummary() {
         <div className="w-10" />
       </header>
 
-      <main className="px-mobile flex flex-col gap-5 mt-4">
+      <main className="px-mobile flex flex-col gap-5 mt-4 stagger">
         <p className="font-body text-[15px] text-on-surface-variant">
           {group?.name ?? '…'} • {members.length} {members.length === 1 ? 'member' : 'members'}
         </p>
@@ -98,6 +115,34 @@ export function GroupSummary() {
           </div>
           <p className="font-caption text-caption text-neutral-600">Positive means the group owes them; negative means they owe the group.</p>
         </section>
+
+        {/* Category insight */}
+        {catBreakdown.rows.length > 0 && (
+          <section className="flex flex-col gap-3 pb-4">
+            <h3 className="font-heading text-[17px] font-bold text-ink">Where the money went</h3>
+            <div className="bg-surface-container-lowest rounded-card border border-neutral-300 card-shadow p-4 flex flex-col gap-4">
+              {catBreakdown.rows.map((c) => {
+                const pct = catBreakdown.grand > 0 ? Math.round((c.total / catBreakdown.grand) * 100) : 0;
+                return (
+                  <div key={c.label} className="flex items-center gap-3">
+                    <div className={`w-9 h-9 rounded-button flex items-center justify-center shrink-0 ${c.tint} ${c.fg}`}>
+                      <Icon name={c.icon} fill style={{ fontSize: 18 }} />
+                    </div>
+                    <div className="flex flex-col flex-1 min-w-0 gap-1">
+                      <div className="flex justify-between items-baseline">
+                        <span className="font-body text-[15px] text-ink">{c.label}</span>
+                        <span className="font-currency text-[13px] text-neutral-600 tnum">{rupees0(c.total)} • {pct}%</span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-surface-container overflow-hidden">
+                        <div className={`h-full rounded-full ${c.bar} transition-[width] duration-500`} style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
       </main>
     </div>
   );

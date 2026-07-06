@@ -30,7 +30,7 @@ export function GroupsList() {
         </button>
       </header>
 
-      <main className="px-mobile flex flex-col gap-4">
+      <main className="px-mobile flex flex-col gap-4 stagger">
         <h2 className="font-heading text-[32px] font-bold text-ink mt-2">Groups</h2>
         <div className="flex flex-col gap-3">
           {groups.map((g) => {

@@ -1,4 +1,33 @@
+import { useEffect, useRef, useState } from 'react';
 import { NavLink } from 'react-router-dom';
+import { apiClient, ApiError, type User } from './api.js';
+
+// ── Count-up: makes hero money numbers land with a satisfying roll ─────
+export function useCountUp(target: number, ms = 600): number {
+  const [value, setValue] = useState(target);
+  const fromRef = useRef(target);
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) { first.current = false; fromRef.current = target; setValue(target); return; }
+    const from = fromRef.current;
+    if (from === target) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      fromRef.current = target; setValue(target); return;
+    }
+    const t0 = performance.now();
+    let raf = 0;
+    const tick = (t: number) => {
+      const p = Math.min(1, (t - t0) / ms);
+      const eased = 1 - Math.pow(1 - p, 3);
+      setValue(Math.round(from + (target - from) * eased));
+      if (p < 1) raf = requestAnimationFrame(tick);
+      else fromRef.current = target;
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, ms]);
+  return value;
+}
 
 // ── Material Symbols icon ─────────────────────────────────────────────
 export function Icon({ name, fill, className, style }: { name: string; fill?: boolean; className?: string; style?: React.CSSProperties }) {
@@ -10,19 +39,19 @@ export function Icon({ name, fill, className, style }: { name: string; fill?: bo
 }
 
 // ── Category → icon + tinted swatch (Warm Finance lifestyle icons) ─────
-type CatStyle = { icon: string; tint: string; fg: string };
+type CatStyle = { label: string; icon: string; tint: string; fg: string; bar: string };
 const CAT = {
-  food: { icon: 'restaurant', tint: 'bg-secondary-container', fg: 'text-secondary' },
-  coffee: { icon: 'local_cafe', tint: 'bg-amber/10', fg: 'text-amber' },
-  groceries: { icon: 'shopping_bag', tint: 'bg-sky/10', fg: 'text-sky' },
-  shopping: { icon: 'shopping_bag', tint: 'bg-sky/10', fg: 'text-sky' },
-  entertainment: { icon: 'movie', tint: 'bg-plum/10', fg: 'text-plum' },
-  rent: { icon: 'home', tint: 'bg-secondary-container', fg: 'text-secondary' },
-  home: { icon: 'home', tint: 'bg-secondary-container', fg: 'text-secondary' },
-  utilities: { icon: 'bolt', tint: 'bg-surface-container-high', fg: 'text-ink' },
-  transport: { icon: 'directions_car', tint: 'bg-sky/10', fg: 'text-sky' },
-  travel: { icon: 'flight_takeoff', tint: 'bg-primary/10', fg: 'text-primary' },
-  settle: { icon: 'handshake', tint: 'bg-teal/15', fg: 'text-tertiary' },
+  food: { label: 'Food & Dining', icon: 'restaurant', tint: 'bg-secondary-container', fg: 'text-secondary', bar: 'bg-secondary' },
+  coffee: { label: 'Coffee & Chai', icon: 'local_cafe', tint: 'bg-amber/10', fg: 'text-amber', bar: 'bg-amber' },
+  groceries: { label: 'Groceries', icon: 'shopping_bag', tint: 'bg-sky/10', fg: 'text-sky', bar: 'bg-sky' },
+  shopping: { label: 'Shopping', icon: 'shopping_bag', tint: 'bg-sky/10', fg: 'text-sky', bar: 'bg-sky' },
+  entertainment: { label: 'Entertainment', icon: 'movie', tint: 'bg-plum/10', fg: 'text-plum', bar: 'bg-plum' },
+  rent: { label: 'Rent & Home', icon: 'home', tint: 'bg-secondary-container', fg: 'text-secondary', bar: 'bg-secondary' },
+  home: { label: 'Home', icon: 'home', tint: 'bg-secondary-container', fg: 'text-secondary', bar: 'bg-secondary' },
+  utilities: { label: 'Utilities', icon: 'bolt', tint: 'bg-surface-container-high', fg: 'text-ink', bar: 'bg-neutral-600' },
+  transport: { label: 'Transport', icon: 'directions_car', tint: 'bg-sky/10', fg: 'text-sky', bar: 'bg-sky' },
+  travel: { label: 'Travel', icon: 'flight_takeoff', tint: 'bg-primary/10', fg: 'text-primary', bar: 'bg-primary' },
+  settle: { label: 'Settlement', icon: 'handshake', tint: 'bg-teal/15', fg: 'text-tertiary', bar: 'bg-teal' },
 } satisfies Record<string, CatStyle>;
 
 // Pick a category style from a free-text description (best-effort keyword match).
@@ -69,6 +98,63 @@ function hash(s: string): number {
   return Math.abs(h);
 }
 
+// ── Invite card: create a placeholder user from a search query ─────────
+// A phone-number query needs a real name (otherwise the person would surface
+// as "Invited" everywhere, and keep that name when they later sign in).
+const PHONE_RE = /^[+0-9\s-]{8,}$/;
+export function InviteCard({ query, busy, onInvite }: { query: string; busy?: boolean; onInvite: (u: User) => void }) {
+  const isPhone = PHONE_RE.test(query);
+  const [inviteName, setInviteName] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function create() {
+    if (creating || busy) return;
+    const name = (isPhone ? inviteName : query).trim();
+    if (!name) { setErr('Add their name so friends recognise them'); return; }
+    setCreating(true); setErr(null);
+    try {
+      const u = await apiClient.createUser(isPhone ? { name, phone: query.trim() } : { name });
+      onInvite(u);
+      setInviteName('');
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : 'Could not invite — try again');
+    } finally { setCreating(false); }
+  }
+
+  return (
+    <div className="border border-dashed border-neutral-300 rounded-card p-4 flex flex-col items-center gap-2 text-primary">
+      <Icon name="person_add" style={{ fontSize: 24 }} />
+      {isPhone ? (
+        <>
+          <p className="font-body text-[15px] font-medium text-ink text-center">Invite <span className="tnum">{query.trim()}</span></p>
+          <input
+            value={inviteName}
+            onChange={(e) => setInviteName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && create()}
+            className="input-warm text-center"
+            placeholder="Their name"
+            autoFocus
+          />
+        </>
+      ) : (
+        <p className="font-body text-[15px] font-medium text-center">Add "{query.trim()}" as a new person</p>
+      )}
+      {err && <p className="text-danger font-caption text-caption text-center">{err}</p>}
+      <button
+        onClick={create}
+        disabled={creating || busy}
+        className="px-6 h-10 rounded-button bg-primary text-on-primary font-body text-[15px] font-semibold active:scale-95 transition-transform disabled:opacity-60"
+      >
+        {creating ? 'Adding…' : 'Add'}
+      </button>
+      <p className="font-caption text-caption text-neutral-600 text-center">
+        {isPhone ? "They'll see this group when they sign in with that number." : 'You can settle on their behalf until they join.'}
+      </p>
+    </div>
+  );
+}
+
 // ── Bottom tab bar (mobile) ───────────────────────────────────────────
 const TABS = [
   { to: '/', icon: 'home', label: 'Home', end: true },
@@ -78,7 +164,7 @@ const TABS = [
 ];
 export function BottomNav() {
   return (
-    <nav className="bg-surface-container-lowest border-t border-neutral-300 fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-2 rounded-t-2xl max-w-[28rem] mx-auto right-0">
+    <nav className="bg-surface-container-lowest/90 backdrop-blur-md border-t border-neutral-300 fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 pt-2 safe-bottom rounded-t-2xl max-w-[28rem] mx-auto right-0">
       {TABS.map((t) => (
         <NavLink
           key={t.to}
@@ -88,12 +174,15 @@ export function BottomNav() {
         >
           {({ isActive }) => (
             <>
-              <Icon
-                name={t.icon}
-                fill={isActive}
-                className={isActive ? 'text-primary' : 'text-secondary'}
-              />
-              <span className={`text-[11px] leading-4 mt-0.5 ${isActive ? 'text-primary font-bold' : 'text-secondary'}`}>{t.label}</span>
+              <span className={`flex items-center justify-center h-7 w-12 rounded-full transition-colors duration-200 ${isActive ? 'bg-primary/10' : ''}`}>
+                <Icon
+                  name={t.icon}
+                  fill={isActive}
+                  className={`transition-colors duration-200 ${isActive ? 'text-primary' : 'text-secondary'}`}
+                  style={{ fontSize: 22 }}
+                />
+              </span>
+              <span className={`text-[11px] leading-4 mt-0.5 transition-colors duration-200 ${isActive ? 'text-primary font-bold' : 'text-secondary'}`}>{t.label}</span>
             </>
           )}
         </NavLink>

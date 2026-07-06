@@ -3,14 +3,14 @@ import { Link, useNavigate } from 'react-router-dom';
 import { apiClient, type Balances, type Expense } from '../api.js';
 import { useStore } from '../store.js';
 import { rupees } from '../format.js';
-import { Avatar, Icon, categoryFor, groupTypeStyle } from '../ui.js';
+import { Avatar, Icon, categoryFor, groupTypeStyle, useCountUp } from '../ui.js';
 import { shareText } from '../share.js';
 
 export function Home() {
   const { me, groups, name } = useStore();
   const nav = useNavigate();
   const [balByGroup, setBalByGroup] = useState<Record<number, Balances>>({});
-  const [expenses, setExpenses] = useState<(Expense & { _group: string })[]>([]);
+  const [expenses, setExpenses] = useState<(Expense & { _group: string })[] | null>(null);
 
   useEffect(() => {
     if (!me) return;
@@ -31,6 +31,8 @@ export function Home() {
     return () => { cancelled = true; };
   }, [me, groups]);
 
+  const firstName = (me?.name ?? '').trim().split(/\s+/)[0] || 'there';
+
   const myNet = (gid: number) => balByGroup[gid]?.members.find((m) => m.user_id === me?.id)?.net_paise ?? 0;
   const overall = useMemo(
     () => groups.reduce((s, g) => s + myNet(gid(g)), 0),
@@ -38,6 +40,7 @@ export function Home() {
     [balByGroup, groups, me],
   );
   const owed = overall >= 0;
+  const animatedOverall = useCountUp(overall);
   const [remindMsg, setRemindMsg] = useState<string | null>(null);
 
   async function remind() {
@@ -68,26 +71,51 @@ export function Home() {
     <div className="min-h-screen pb-28 bg-paper">
       {/* Top App Bar */}
       <header className="bg-paper sticky top-0 z-40 flex items-center justify-between px-mobile py-3">
-        <Link to="/profile"><Avatar name={me?.name ?? ''} size={36} /></Link>
-        <h1 className="font-heading text-[22px] font-bold text-primary">Squared Up</h1>
+        <Link to="/profile" className="flex items-center gap-3 min-w-0 active:scale-[0.98] transition-transform">
+          <Avatar name={me?.name ?? ''} size={40} />
+          <div className="flex flex-col min-w-0">
+            <span className="font-heading text-[17px] font-bold text-ink leading-tight truncate">Hi {firstName} 👋</span>
+            <span className="font-caption text-caption text-neutral-600">
+              {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })}
+            </span>
+          </div>
+        </Link>
         <Link to="/activity" className="w-10 h-10 flex items-center justify-center rounded-full text-primary active:scale-95 transition-transform">
           <Icon name="notifications" />
         </Link>
       </header>
 
-      <main className="px-mobile flex flex-col gap-6">
+      <main className="px-mobile flex flex-col gap-6 stagger">
+        {groups.length === 0 && (
+          <section className="bg-surface-container-lowest rounded-card p-6 border border-neutral-300 card-shadow flex flex-col items-center text-center gap-3">
+            <div className="w-14 h-14 rounded-card bg-primary/10 text-primary flex items-center justify-center">
+              <Icon name="group_add" fill style={{ fontSize: 28 }} />
+            </div>
+            <h2 className="font-heading text-[22px] font-bold text-ink">Start your first group</h2>
+            <p className="font-body text-[15px] text-on-surface-variant max-w-[280px]">
+              Flatmates, a trip, or just you and a friend — add expenses and Squared Up keeps the math fair.
+            </p>
+            <button
+              onClick={() => nav('/groups/new')}
+              className="w-full bg-primary text-on-primary h-[52px] rounded-button font-heading text-[17px] font-semibold mt-1 active:scale-[0.98] transition-transform"
+            >
+              Create a group
+            </button>
+          </section>
+        )}
         {/* Hero Balance */}
+        {groups.length > 0 && (
         <section className="bg-surface-container-lowest rounded-card p-4 border border-neutral-300 card-shadow flex flex-col gap-3">
           <div className="flex justify-between items-start">
             <div className="flex flex-col">
               <span className="font-body text-[15px] text-neutral-600">Overall Balance</span>
               <h2 className="font-heading text-[40px] leading-tight font-semibold text-ink tnum mt-1">
-                {rupees(Math.abs(overall))}
+                {rupees(Math.abs(animatedOverall))}
               </h2>
             </div>
             <div className={`px-3 py-0.5 rounded-full flex items-center gap-1 ${owed ? 'bg-teal/10 text-teal' : 'bg-primary/10 text-primary'}`}>
-              <Icon name={owed ? 'arrow_upward' : 'arrow_downward'} fill style={{ fontSize: 16 }} />
-              <span className="text-[11px] font-medium">{owed ? 'You are owed' : 'You owe'}</span>
+              <Icon name={overall === 0 ? 'check' : owed ? 'arrow_upward' : 'arrow_downward'} fill style={{ fontSize: 16 }} />
+              <span className="text-[11px] font-medium">{overall === 0 ? 'All settled' : owed ? 'You are owed' : 'You owe'}</span>
             </div>
           </div>
           <div className="flex gap-4 mt-1">
@@ -106,6 +134,7 @@ export function Home() {
           </div>
           {remindMsg && <p className="font-caption text-caption text-neutral-600 text-center">{remindMsg}</p>}
         </section>
+        )}
 
         {/* Active Groups */}
         <section className="flex flex-col gap-3">
@@ -159,8 +188,13 @@ export function Home() {
             <h3 className="font-heading text-[22px] font-semibold text-ink">Recent Activity</h3>
             <Link to="/activity" className="font-body text-[15px] text-primary font-medium">History</Link>
           </div>
-          <div className="bg-surface-container-lowest rounded-card border border-neutral-300 card-shadow divide-y divide-neutral-100">
-            {expenses.map((e) => {
+          {expenses === null && (
+            <div className="flex flex-col gap-3">
+              {[0, 1, 2].map((i) => <div key={i} className="skeleton h-[72px] rounded-card" />)}
+            </div>
+          )}
+          <div className={`bg-surface-container-lowest rounded-card border border-neutral-300 card-shadow divide-y divide-neutral-100 ${expenses === null ? 'hidden' : ''}`}>
+            {(expenses ?? []).map((e) => {
               const cat = categoryFor(e.description);
               const payer = e.shares.find((s) => s.paid_paise > 0);
               const iPaid = payer?.user_id === me?.id;
@@ -182,14 +216,17 @@ export function Home() {
                   <div className="flex flex-col items-end shrink-0 pl-2">
                     <span className="font-currency text-[17px] text-ink tnum">{rupees(e.amount_paise)}</span>
                     <span className={`text-[11px] font-medium ${net > 0 ? 'text-success' : net < 0 ? 'text-primary' : 'text-neutral-600'}`}>
-                      {net > 0 ? `Owed ${rupees(net)}` : net < 0 ? `You owe ${rupees(-net)}` : 'Settled'}
+                      {net > 0 ? `Lent ${rupees(net)}` : net < 0 ? `Borrowed ${rupees(-net)}` : 'Settled'}
                     </span>
                   </div>
                 </Link>
               );
             })}
-            {expenses.length === 0 && (
-              <div className="p-6 text-center text-neutral-600 font-body text-[15px]">No activity yet.</div>
+            {expenses !== null && expenses.length === 0 && (
+              <div className="p-8 flex flex-col items-center gap-2 text-neutral-600">
+                <Icon name="receipt_long" style={{ fontSize: 28 }} />
+                <p className="font-body text-[15px] text-center">No expenses yet — add your first one with the + button.</p>
+              </div>
             )}
           </div>
         </section>

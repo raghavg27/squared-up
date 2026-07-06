@@ -104,6 +104,69 @@ body {
 .card-shadow {
   box-shadow: 0 1px 3px rgba(27, 27, 58, 0.06);
 }
+
+/* ── Motion system ─────────────────────────────────────────────────────
+   Fast and snappy (150–250ms ease-out) per the design brief: money UIs
+   should never feel slow. Route containers only fade (opacity) so
+   position:fixed/sticky children (bottom nav, FAB, sheets) never glitch
+   inside a transformed ancestor. */
+@keyframes su-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes su-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes su-pop {
+  0% { opacity: 0; transform: scale(0.5); }
+  70% { transform: scale(1.08); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes su-sheet-up {
+  from { transform: translateY(48px); opacity: 0.4; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes su-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+.route-fade { animation: su-fade 200ms ease-out both; }
+.page-enter { animation: su-rise 240ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.pop-in { animation: su-pop 320ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.sheet-up { animation: su-sheet-up 260ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* Staggered list entrance: apply to a container; direct children cascade. */
+.stagger > * { animation: su-rise 260ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 40ms; }
+.stagger > *:nth-child(3) { animation-delay: 80ms; }
+.stagger > *:nth-child(4) { animation-delay: 120ms; }
+.stagger > *:nth-child(5) { animation-delay: 160ms; }
+.stagger > *:nth-child(6) { animation-delay: 200ms; }
+.stagger > *:nth-child(n + 7) { animation-delay: 240ms; }
+
+/* Loading placeholders */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-container) 25%,
+    var(--color-surface-container-high) 50%,
+    var(--color-surface-container) 75%
+  );
+  background-size: 200% 100%;
+  animation: su-shimmer 1.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-fade, .page-enter, .pop-in, .sheet-up, .stagger > * { animation: none; }
+  .skeleton { animation: none; }
+  * { transition-duration: 0.01ms !important; }
+}
+
+/* iOS safe areas: keep fixed bottom chrome above the home indicator. */
+.safe-bottom { padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
 .hide-scrollbar::-webkit-scrollbar {
   display: none;
 }

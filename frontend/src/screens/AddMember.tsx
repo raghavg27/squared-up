@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { apiClient, ApiError, type Group, type User } from '../api.js';
 import { useStore } from '../store.js';
-import { Avatar, Icon } from '../ui.js';
+import { Avatar, Icon, InviteCard } from '../ui.js';
 
 export function AddMember() {
   const { id } = useParams();
@@ -39,14 +39,9 @@ export function AddMember() {
     finally { setBusyId(null); }
   }
 
-  async function invite() {
-    const name = q.trim();
-    if (!name) return;
+  async function addInvited(u: User) {
     setBusyId(-1); setErr(null);
     try {
-      // Digits-only query → treat as phone invite; otherwise a named placeholder.
-      const isPhone = /^[+0-9\s-]{8,}$/.test(name);
-      const u = await apiClient.createUser(isPhone ? { name: 'Invited', phone: name } : { name });
       const g = await apiClient.addMember(gid, u.id);
       setGroup(g); reloadUsers(); setQ('');
     } catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not invite'); }
@@ -94,11 +89,8 @@ export function AddMember() {
             );
           })}
 
-          {q.trim().length >= 2 && visible.every((u) => u.id !== me?.id) && (
-            <button onClick={invite} disabled={busyId === -1} className="border border-dashed border-neutral-300 rounded-card py-5 flex flex-col items-center gap-1 text-primary active:scale-[0.99] transition-transform disabled:opacity-60">
-              <Icon name="person_add" style={{ fontSize: 24 }} />
-              <span className="font-body text-[15px] font-medium">Invite "{q.trim()}"</span>
-            </button>
+          {q.trim().length >= 2 && visible.length === 0 && (
+            <InviteCard query={q} busy={busyId === -1} onInvite={addInvited} />
           )}
           {q.trim().length < 2 && visible.length === 0 && (
             <p className="font-body text-[15px] text-neutral-600 text-center py-4">Search to add friends or family to this group.</p>

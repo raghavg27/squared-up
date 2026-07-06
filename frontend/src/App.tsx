@@ -11,6 +11,7 @@ import { GroupDetail } from './screens/GroupDetail.js';
 import { CreateGroup } from './screens/CreateGroup.js';
 import { GroupSettings } from './screens/GroupSettings.js';
 import { GroupSummary } from './screens/GroupSummary.js';
+import { GroupExpenses } from './screens/GroupExpenses.js';
 import { AddMember } from './screens/AddMember.js';
 import { Friends } from './screens/Friends.js';
 import { ActivityFeed } from './screens/ActivityFeed.js';
@@ -64,7 +65,7 @@ export function App() {
   const showNav = TAB_PATHS.includes(loc.pathname);
 
   return (
-    <Shell>
+    <Shell routeKey={loc.pathname}>
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/groups" element={<GroupsList />} />
@@ -72,6 +73,7 @@ export function App() {
         <Route path="/groups/:id" element={<GroupDetail />} />
         <Route path="/groups/:id/settings" element={<GroupSettings />} />
         <Route path="/groups/:id/summary" element={<GroupSummary />} />
+        <Route path="/groups/:id/expenses" element={<GroupExpenses />} />
         <Route path="/groups/:id/add-member" element={<AddMember />} />
         <Route path="/groups/:id/add" element={<AddExpense />} />
         <Route path="/friends" element={<Friends />} />
@@ -89,6 +91,12 @@ export function App() {
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
-  return <div className="max-w-[28rem] mx-auto min-h-screen bg-paper relative">{children}</div>;
+function Shell({ children, routeKey }: { children: React.ReactNode; routeKey?: string }) {
+  // Keyed by route so every screen change replays a quick fade. Opacity-only:
+  // a transform here would break the fixed bottom nav / FAB / sheets.
+  return (
+    <div className="max-w-[28rem] mx-auto min-h-screen bg-paper relative">
+      <div key={routeKey} className={routeKey ? 'route-fade' : undefined}>{children}</div>
+    </div>
+  );
 }

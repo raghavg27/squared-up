@@ -49,6 +49,36 @@ def is_active_member(group_id: int, user_id: int) -> bool:
     return active_members(group_id).filter(user_id=user_id).exists()
 
 
+def require_group_member(group_id: int, actor_id: int) -> Group:
+    """Authorization gate for anything scoped to a group: the group must exist
+    and the actor must be an active member. 404s both ways so outsiders can't
+    probe which group ids exist."""
+    g = Group.objects.filter(id=group_id, deleted_at__isnull=True).first()
+    if not g or not is_active_member(group_id, actor_id):
+        raise DomainError("NOT_FOUND", "group not found")
+    return g
+
+
+def _can_access_expense(e: Expense, actor_id: int) -> bool:
+    """Group expenses: any active member. Personal expenses: creator or anyone
+    on the split."""
+    if e.group_id is not None:
+        return is_active_member(e.group_id, actor_id)
+    if e.created_by_id == actor_id:
+        return True
+    return e.shares.filter(user_id=actor_id).exists()
+
+
+def require_expense_access(expense_id: int, actor_id: int, *, include_deleted: bool = False) -> Expense:
+    qs = Expense.objects.filter(id=expense_id)
+    if not include_deleted:
+        qs = qs.filter(deleted_at__isnull=True)
+    e = qs.prefetch_related("shares").first()
+    if not e or not _can_access_expense(e, actor_id):
+        raise DomainError("NOT_FOUND", "expense not found")
+    return e
+
+
 # ── Directory: users & groups ───────────────────────────────────────────────
 
 def user_to_dict(u: User) -> dict:
@@ -86,9 +116,19 @@ def group_to_dict(g: Group) -> dict:
 
 
 def create_user(data: dict) -> dict:
+    phone = data.get("phone")
+    if phone:
+        # Same normalization as OTP login, so an invited person and the account
+        # they later sign in with resolve to ONE user, not two.
+        from .auth_service import normalize_phone
+
+        phone = normalize_phone(phone)
+        existing = User.objects.filter(phone=phone).first()
+        if existing:
+            return user_to_dict(existing)
     u = User.objects.create(
         name=data["name"],
-        phone=data.get("phone"),
+        phone=phone,
         email=data.get("email"),
         upi_vpa=data.get("upi_vpa"),
         locale=data["locale"],
@@ -96,8 +136,19 @@ def create_user(data: dict) -> dict:
     return user_to_dict(u)
 
 
-def list_users() -> list[dict]:
-    return [user_to_dict(u) for u in User.objects.order_by("id")]
+def list_users(for_user: int | None = None) -> list[dict]:
+    """Directory scoped to the caller: self, friends, and co-members of any of
+    their groups. Passing ``None`` (internal/tests) returns everyone."""
+    if for_user is None:
+        return [user_to_dict(u) for u in User.objects.order_by("id")]
+    from .models import Friendship
+
+    ids = {for_user}
+    ids |= set(Friendship.objects.filter(user_low_id=for_user).values_list("user_high_id", flat=True))
+    ids |= set(Friendship.objects.filter(user_high_id=for_user).values_list("user_low_id", flat=True))
+    my_groups = GroupMember.objects.filter(user_id=for_user, left_at__isnull=True).values_list("group_id", flat=True)
+    ids |= set(GroupMember.objects.filter(group_id__in=list(my_groups)).values_list("user_id", flat=True))
+    return [user_to_dict(u) for u in User.objects.filter(id__in=ids).order_by("id")]
 
 
 def get_user(user_id: int) -> dict | None:
@@ -110,9 +161,20 @@ def update_user(user_id: int, data: dict) -> dict:
     if not u:
         raise DomainError("NOT_FOUND", "user not found")
     fields = []
-    for key in ("name", "upi_vpa", "avatar_url", "locale"):
-        if key in data and data[key] is not None:
-            setattr(u, key, data[key])
+    # name/locale must stay non-empty; upi_vpa/avatar_url may be cleared (null).
+    for key in ("name", "locale"):
+        if key in data and isinstance(data[key], str) and data[key].strip():
+            setattr(u, key, data[key].strip()[:100])
+            fields.append(key)
+    for key in ("upi_vpa", "avatar_url"):
+        if key in data:
+            v = data[key]
+            if v is not None and not isinstance(v, str):
+                raise DomainError("VALIDATION_ERROR", f"{key} must be a string or null")
+            v = (v or "").strip() or None
+            if key == "upi_vpa" and v is not None and "@" not in v:
+                raise DomainError("VALIDATION_ERROR", "UPI ID should look like name@bank")
+            setattr(u, key, v)
             fields.append(key)
     if fields:
         u.save(update_fields=fields)
@@ -196,6 +258,10 @@ def remove_group_member(group_id: int, actor_id: int, user_id: int) -> dict:
 @transaction.atomic
 def create_group(data: dict) -> dict:
     member_ids = list(dict.fromkeys([data["created_by"], *data["member_ids"]]))
+    existing = set(User.objects.filter(id__in=member_ids).values_list("id", flat=True))
+    missing = [m for m in member_ids if m not in existing]
+    if missing:
+        raise DomainError("NOT_FOUND", f"user {missing[0]} not found")
     g = Group.objects.create(
         name=data["name"],
         type=data["type"],
@@ -239,7 +305,10 @@ def _expense_to_response(e: Expense, shares: list[dict]) -> dict:
         "group_id": e.group_id,
         "description": e.description,
         "amount_paise": e.amount_paise,
+        "currency": e.currency,
+        "expense_date": e.expense_date.isoformat() if not isinstance(e.expense_date, str) else e.expense_date,
         "is_rotation": e.is_rotation,
+        "created_by": e.created_by_id,
         "shares": [
             {**s, "net_paise": s["paid_paise"] - s["owed_paise"]} for s in shares
         ],
@@ -309,7 +378,7 @@ def create_expense(data: dict, idempotency_key: str) -> tuple[int, dict]:
             data["created_by"],
             "expense.created",
             f"expense:{e.id}",
-            {"description": data["description"], "amount_paise": data["amount_paise"]},
+            {"group_id": group_id, "description": data["description"], "amount_paise": data["amount_paise"]},
         )
 
         body = _expense_to_response(e, shares)
@@ -341,13 +410,9 @@ def list_group_expenses(group_id: int) -> list[dict]:
     return [_expense_to_response(e, _shares_of(e)) for e in qs]
 
 
-def get_expense(expense_id: int) -> dict | None:
-    e = (
-        Expense.objects.filter(id=expense_id, deleted_at__isnull=True)
-        .prefetch_related("shares")
-        .first()
-    )
-    return _expense_to_response(e, _shares_of(e)) if e else None
+def get_expense(expense_id: int, actor: int) -> dict:
+    e = require_expense_access(expense_id, actor)
+    return _expense_to_response(e, _shares_of(e))
 
 
 def update_expense(expense_id: int, actor: int, data: dict) -> dict:
@@ -358,8 +423,11 @@ def update_expense(expense_id: int, actor: int, data: dict) -> dict:
         if not e:
             raise DomainError("NOT_FOUND", "expense not found")
         group_id = e.group_id
-        if group_id is not None and not is_active_member(group_id, actor):
-            raise DomainError("FORBIDDEN", "only group members can edit")
+        if group_id is not None:
+            if not is_active_member(group_id, actor):
+                raise DomainError("FORBIDDEN", "only group members can edit")
+        elif e.created_by_id != actor:
+            raise DomainError("FORBIDDEN", "only the creator can edit this expense")
 
         if group_id is not None:
             everyone = {p["user_id"] for p in data["payers"]} | set(data["split"]["participants"])
@@ -384,7 +452,7 @@ def update_expense(expense_id: int, actor: int, data: dict) -> dict:
         ExpenseShare.objects.bulk_create(
             [ExpenseShare(expense=e, user_id=s["user_id"], paid_paise=s["paid_paise"], owed_paise=s["owed_paise"]) for s in shares]
         )
-        log_activity(actor, "expense.updated", f"expense:{e.id}", {"description": data["description"], "amount_paise": data["amount_paise"]})
+        log_activity(actor, "expense.updated", f"expense:{e.id}", {"group_id": group_id, "description": data["description"], "amount_paise": data["amount_paise"]})
         return _expense_to_response(e, shares)
 
 
@@ -394,18 +462,23 @@ def soft_delete_expense(expense_id: int, actor: int) -> None:
     e = Expense.objects.filter(id=expense_id, deleted_at__isnull=True).first()
     if not e:
         return
+    if not _can_access_expense(e, actor):
+        raise DomainError("NOT_FOUND", "expense not found")
     e.deleted_at = timezone.now()
     e.save(update_fields=["deleted_at"])
-    log_activity(actor, "expense.deleted", f"expense:{expense_id}", {})
+    log_activity(actor, "expense.deleted", f"expense:{expense_id}",
+                 {"group_id": e.group_id, "description": e.description, "amount_paise": e.amount_paise})
 
 
 def restore_expense(expense_id: int, actor: int) -> None:
     e = Expense.objects.filter(id=expense_id, deleted_at__isnull=False).first()
     if not e:
         return
+    if not _can_access_expense(e, actor):
+        raise DomainError("NOT_FOUND", "expense not found")
     e.deleted_at = None
     e.save(update_fields=["deleted_at"])
-    log_activity(actor, "expense.restored", f"expense:{expense_id}", {})
+    log_activity(actor, "expense.restored", f"expense:{expense_id}", {"group_id": e.group_id})
 
 
 # ── Comments ────────────────────────────────────────────────────────────────
@@ -420,10 +493,8 @@ def _comment_to_dict(c: Comment) -> dict:
     }
 
 
-def list_comments(expense_id: int) -> list[dict]:
-    e = Expense.objects.filter(id=expense_id, deleted_at__isnull=True).first()
-    if not e:
-        raise DomainError("NOT_FOUND", "expense not found")
+def list_comments(expense_id: int, actor: int) -> list[dict]:
+    require_expense_access(expense_id, actor)
     qs = Comment.objects.filter(expense_id=expense_id).order_by("id")
     return [_comment_to_dict(c) for c in qs]
 
@@ -444,7 +515,8 @@ def add_comment(expense_id: int, actor: int, body: str) -> dict:
     elif e.created_by_id != actor:
         raise DomainError("FORBIDDEN", "not allowed to comment")
     c = Comment.objects.create(expense_id=expense_id, user_id=actor, body=body)
-    log_activity(actor, "comment.created", f"expense:{expense_id}", {"comment_id": c.id})
+    log_activity(actor, "comment.created", f"expense:{expense_id}",
+                 {"group_id": e.group_id, "comment_id": c.id, "description": e.description})
     return _comment_to_dict(c)
 
 
@@ -556,6 +628,10 @@ def create_settlement(data: dict, idempotency_key: str) -> tuple[int, dict]:
         creditor = User.objects.filter(id=data["to_user"]).first()
         if not creditor:
             raise DomainError("NOT_GROUP_MEMBER", "creditor not found")
+        if data["group_id"] is not None:
+            require_group_member(data["group_id"], data["from_user"])
+            if not is_active_member(data["group_id"], data["to_user"]):
+                raise DomainError("NOT_GROUP_MEMBER", "creditor is not a member of this group")
 
         intent = build_upi_intent(
             vpa=creditor.upi_vpa,
@@ -579,7 +655,7 @@ def create_settlement(data: dict, idempotency_key: str) -> tuple[int, dict]:
             data["from_user"],
             "settlement.created",
             f"settlement:{s.id}",
-            {"amount_paise": data["amount_paise"], "to": data["to_user"]},
+            {"group_id": data["group_id"], "amount_paise": data["amount_paise"], "to": data["to_user"]},
         )
 
         body = {
@@ -608,28 +684,33 @@ def _settlement_to_dict(s: Settlement) -> dict:
     }
 
 
-def confirm_settlement(settlement_id: int) -> dict:
+def _require_settlement_party(settlement_id: int, actor: int) -> Settlement:
+    s = Settlement.objects.filter(id=settlement_id, deleted_at__isnull=True).first()
+    if not s or actor not in (s.from_user_id, s.to_user_id):
+        raise DomainError("NOT_FOUND", "settlement not found")
+    return s
+
+
+def confirm_settlement(settlement_id: int, actor: int) -> dict:
     from django.utils import timezone
 
-    s = Settlement.objects.filter(id=settlement_id, deleted_at__isnull=True).first()
-    if not s:
-        raise DomainError("NOT_GROUP_MEMBER", "settlement not found")
+    s = _require_settlement_party(settlement_id, actor)
     if s.status == "confirmed":
         return _settlement_to_dict(s)
     s.status = "confirmed"
     s.confirmed_at = timezone.now()
     s.save(update_fields=["status", "confirmed_at"])
-    log_activity(s.from_user_id, "settlement.confirmed", f"settlement:{s.id}", {})
+    log_activity(actor, "settlement.confirmed", f"settlement:{s.id}",
+                 {"group_id": s.group_id, "amount_paise": s.amount_paise, "to": s.to_user_id})
     return _settlement_to_dict(s)
 
 
-def dispute_settlement(settlement_id: int) -> dict:
-    s = Settlement.objects.filter(id=settlement_id, deleted_at__isnull=True).first()
-    if not s:
-        raise DomainError("NOT_GROUP_MEMBER", "settlement not found")
+def dispute_settlement(settlement_id: int, actor: int) -> dict:
+    s = _require_settlement_party(settlement_id, actor)
     s.status = "disputed"
     s.save(update_fields=["status"])
-    log_activity(s.from_user_id, "settlement.disputed", f"settlement:{s.id}", {})
+    log_activity(actor, "settlement.disputed", f"settlement:{s.id}",
+                 {"group_id": s.group_id, "amount_paise": s.amount_paise, "to": s.to_user_id})
     return _settlement_to_dict(s)
 
 
@@ -666,6 +747,9 @@ def recent_activity(user_id: int | None = None) -> list[dict]:
             except ValueError:
                 gid = None
         payload = a.payload or {}
+        if gid is None:
+            pgid = payload.get("group_id")
+            gid = pgid if isinstance(pgid, int) else None
         relevant = (
             a.actor_id == user_id
             or (gid is not None and gid in my_group_ids)
@@ -686,6 +770,7 @@ def list_settlements(user_id: int, group_id: int | None = None) -> list[dict]:
 
     qs = Settlement.objects.filter(deleted_at__isnull=True).order_by("-id")
     if group_id is not None:
+        require_group_member(group_id, user_id)
         qs = qs.filter(group_id=group_id)
     else:
         qs = qs.filter(Q(from_user_id=user_id) | Q(to_user_id=user_id))

@@ -55,6 +55,18 @@ Register with your mobile number, complete onboarding, create a group, add
 members, split an expense, and settle up over UPI. Log in as a seeded phone
 (e.g. `9000000001` = Aarav) to land in **Flat 304** / **Goa Trip** with data.
 
+## Authorization model
+
+Every group-scoped read/write (`groups/<id>`, `/expenses`, `/balances`, `/turn`,
+group settlements) requires the caller to be an **active member** — outsiders
+get 404 so ids can't be probed. Expenses are visible to their group's members
+(personal ones only to their creator/participants); settlements can only be
+confirmed/disputed by the two parties involved; `GET /users` returns only
+people you already know (self, friends, co-members). Invites by phone number
+are normalized to E.164 and deduped, so the invited placeholder and the account
+that later signs in with that number are the same user. See
+`tests/test_authz.py` for the enforced matrix.
+
 ## Auth model
 
 Phone-OTP → JWT. `POST /auth/request-otp` issues a 6-digit code (hashed at rest,

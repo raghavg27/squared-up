@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { apiClient, type Group } from './api.js';
+import { apiClient, ApiError, type Group } from './api.js';
 import { useStore } from './store.js';
 import { Avatar, Icon } from './ui.js';
 import { rupees } from './format.js';
@@ -59,7 +59,7 @@ export function AddExpense() {
       if (d.i_paid && me) setPayer(me.id);
       const matched = members.filter((mid) => mid === me?.id || d.mentioned_names.some((n) => name(mid).toLowerCase() === n.toLowerCase()));
       setParticipants(matched.length > 1 ? matched : members);
-    } catch (e) { setErr(String(e)); }
+    } catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not parse that — fill the form below'); }
     finally { setNlBusy(false); }
   }
 
@@ -79,11 +79,20 @@ export function AddExpense() {
     return { type: 'shares', participants, shares };
   }
 
+  // Exact split must add up before we let it through.
+  const exactTotal = participants.reduce((s, id) => s + Math.round(parseFloat(perUser[id] || '0') * 100), 0);
+  const exactRemaining = amountPaise - exactTotal;
+
   async function save() {
     if (busy || !me) return;
     setErr(null);
     if (!(amountPaise > 0)) return setErr('Enter an amount');
     if (participants.length === 0) return setErr('Pick at least one participant');
+    if (splitType === 'exact' && exactRemaining !== 0) {
+      return setErr(exactRemaining > 0
+        ? `${rupees(exactRemaining)} left to assign`
+        : `Assigned ${rupees(-exactRemaining)} too much`);
+    }
     setBusy(true);
     try {
       await apiClient.createExpense({
@@ -98,8 +107,9 @@ export function AddExpense() {
         payers: [{ user_id: payer, paid_paise: amountPaise }],
         split: buildSplit(),
       });
+      if (navigator.vibrate) navigator.vibrate(20);
       nav(`/groups/${groupId}`, { replace: true });
-    } catch (e) { setErr(String(e)); setBusy(false); }
+    } catch (e) { setErr(e instanceof ApiError ? e.message : "That didn't save — check your connection and try again"); setBusy(false); }
   }
 
   const others = Math.max(participants.length - 1, 0);
@@ -108,7 +118,7 @@ export function AddExpense() {
     <div className="fixed inset-0 z-50 bg-surface-dim flex flex-col max-w-[28rem] mx-auto">
       {/* grey backdrop tap area */}
       <button className="h-16 w-full shrink-0" onClick={() => nav(-1)} aria-label="Close" />
-      <div className="flex-1 bg-surface-container-lowest rounded-t-[28px] flex flex-col overflow-hidden">
+      <div className="flex-1 bg-surface-container-lowest rounded-t-[28px] flex flex-col overflow-hidden sheet-up">
         {/* header */}
         <div className="relative flex items-center justify-center py-4 border-b border-neutral-100">
           <button onClick={() => nav(-1)} className="absolute left-4 w-10 h-10 flex items-center justify-center text-ink active:scale-95 transition-transform">
@@ -131,6 +141,14 @@ export function AddExpense() {
               className="font-heading text-[48px] font-bold text-ink tnum bg-transparent outline-none text-center w-[220px] placeholder:text-ink"
             />
           </div>
+
+          {/* description */}
+          <input
+            value={desc}
+            onChange={(e) => setDesc(e.target.value)}
+            placeholder="What's it for? e.g. Dinner at Toit"
+            className="w-full text-center bg-transparent outline-none font-body text-[17px] text-ink placeholder:text-neutral-600 mt-3"
+          />
 
           {/* smart entry */}
           <div className="bg-neutral-100 rounded-button flex items-center gap-2 px-4 py-3 mt-6">
@@ -217,6 +235,11 @@ export function AddExpense() {
             })}
           </div>
 
+          {splitType === 'exact' && amountPaise > 0 && exactRemaining !== 0 && (
+            <p className={`font-caption text-caption mt-3 text-center ${exactRemaining > 0 ? 'text-amber' : 'text-danger'}`}>
+              {exactRemaining > 0 ? `${rupees(exactRemaining)} left to assign` : `${rupees(-exactRemaining)} over — adjust the amounts`}
+            </p>
+          )}
           {err && <p className="text-danger font-body text-[13px] mt-4">{err}</p>}
         </div>
 

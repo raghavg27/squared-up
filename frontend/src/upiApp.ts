@@ -22,3 +22,19 @@ export function getUpiApp(): UpiApp {
 export function setUpiApp(key: string): void {
   localStorage.setItem(KEY, key);
 }
+
+// App-specific URI schemes deep-link straight into the chosen app; the generic
+// upi:// intent shows the OS chooser. Same query params either way.
+const SCHEMES: Record<string, string> = {
+  gpay: 'tez://upi/pay',
+  phonepe: 'phonepe://pay',
+  paytm: 'paytmmp://pay',
+  bhim: 'upi://pay',
+};
+
+export function preferredIntent(upiIntent: string): string {
+  const scheme = SCHEMES[getUpiApp().key];
+  if (!scheme) return upiIntent;
+  const q = upiIntent.split('?')[1] ?? '';
+  return `${scheme}?${q}`;
+}

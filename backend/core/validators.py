@@ -87,7 +87,11 @@ def validate_create_expense(data: dict) -> dict:
         category_id = _require_int(category_id, "category_id", positive=True)
 
     expense_date = data.get("expense_date")
-    if not isinstance(expense_date, str) or not _DATE_RE.match(expense_date):
+    if expense_date is None:
+        from django.utils import timezone
+
+        expense_date = timezone.localdate().isoformat()
+    elif not isinstance(expense_date, str) or not _DATE_RE.match(expense_date):
         _err("expense_date", "must match YYYY-MM-DD")
 
     currency = data.get("currency", "INR")
