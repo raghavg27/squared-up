@@ -1,0 +1,692 @@
+"""Application services — DB access + domain math. Mirrors the old API modules
+(directory / expenses / balances / turn / settlements). Responses are built as
+JSON-safe dicts (datetimes as ISO strings) so they can also be stored verbatim
+in an IdempotencyRecord for safe replays (I9).
+"""
+
+import uuid
+
+from django.db import transaction
+
+from domain import (
+    DomainError,
+    compute_shares,
+    compute_nets,
+    assert_balanced,
+    simplify,
+    next_payer_balanced,
+    next_payer_round_robin,
+    compute_rotation_nets,
+    build_upi_intent,
+)
+
+from .models import (
+    User,
+    Group,
+    GroupMember,
+    Expense,
+    ExpenseShare,
+    Settlement,
+    ActivityEvent,
+    Comment,
+    IdempotencyRecord,
+)
+
+
+def _iso(dt):
+    return dt.isoformat() if dt is not None else None
+
+
+def log_activity(actor_id: int, type_: str, target: str, payload: dict) -> None:
+    ActivityEvent.objects.create(actor_id=actor_id, type=type_, target=target, payload=payload)
+
+
+def active_members(group_id: int):
+    return GroupMember.objects.filter(group_id=group_id, left_at__isnull=True)
+
+
+def is_active_member(group_id: int, user_id: int) -> bool:
+    return active_members(group_id).filter(user_id=user_id).exists()
+
+
+# ── Directory: users & groups ───────────────────────────────────────────────
+
+def user_to_dict(u: User) -> dict:
+    return {
+        "id": u.id,
+        "phone": u.phone,
+        "email": u.email,
+        "name": u.name,
+        "avatar_url": u.avatar_url,
+        "upi_vpa": u.upi_vpa,
+        "default_currency": u.default_currency,
+        "locale": u.locale,
+        "created_at": _iso(u.created_at),
+    }
+
+
+def group_to_dict(g: Group) -> dict:
+    members = list(
+        active_members(g.id).order_by("user_id").values_list("user_id", flat=True)
+    )
+    return {
+        "id": g.id,
+        "name": g.name,
+        "type": g.type,
+        "cover_url": g.cover_url,
+        "base_currency": g.base_currency,
+        "rotation_enabled": g.rotation_enabled,
+        "rotation_mode": g.rotation_mode,
+        "rotation_rr_order": g.rotation_rr_order,
+        "rotation_rr_pos": g.rotation_rr_pos,
+        "created_by": g.created_by_id,
+        "created_at": _iso(g.created_at),
+        "members": members,
+    }
+
+
+def create_user(data: dict) -> dict:
+    u = User.objects.create(
+        name=data["name"],
+        phone=data.get("phone"),
+        email=data.get("email"),
+        upi_vpa=data.get("upi_vpa"),
+        locale=data["locale"],
+    )
+    return user_to_dict(u)
+
+
+def list_users() -> list[dict]:
+    return [user_to_dict(u) for u in User.objects.order_by("id")]
+
+
+def get_user(user_id: int) -> dict | None:
+    u = User.objects.filter(id=user_id).first()
+    return user_to_dict(u) if u else None
+
+
+def update_user(user_id: int, data: dict) -> dict:
+    u = User.objects.filter(id=user_id).first()
+    if not u:
+        raise DomainError("NOT_FOUND", "user not found")
+    fields = []
+    for key in ("name", "upi_vpa", "avatar_url", "locale"):
+        if key in data and data[key] is not None:
+            setattr(u, key, data[key])
+            fields.append(key)
+    if fields:
+        u.save(update_fields=fields)
+    return user_to_dict(u)
+
+
+def search_users(query: str, exclude_id: int | None = None, limit: int = 20) -> list[dict]:
+    from django.db.models import Q
+
+    q = (query or "").strip()
+    if not q:
+        return []
+    qs = User.objects.filter(Q(name__icontains=q) | Q(phone__icontains=q) | Q(email__icontains=q))
+    if exclude_id is not None:
+        qs = qs.exclude(id=exclude_id)
+    return [user_to_dict(u) for u in qs.order_by("name")[:limit]]
+
+
+# ── Friends ─────────────────────────────────────────────────────────────────
+
+def list_friends(user_id: int) -> list[dict]:
+    from .models import Friendship
+
+    pairs = Friendship.objects.filter(user_low_id=user_id).values_list("user_high_id", flat=True)
+    pairs2 = Friendship.objects.filter(user_high_id=user_id).values_list("user_low_id", flat=True)
+    ids = set(pairs) | set(pairs2)
+    return [user_to_dict(u) for u in User.objects.filter(id__in=ids).order_by("name")]
+
+
+def add_friend(user_id: int, other_id: int) -> dict:
+    from .models import Friendship
+
+    if user_id == other_id:
+        raise DomainError("VALIDATION_ERROR", "cannot friend yourself")
+    if not User.objects.filter(id=other_id).exists():
+        raise DomainError("NOT_FOUND", "user not found")
+    lo, hi = sorted((user_id, other_id))
+    Friendship.objects.get_or_create(user_low_id=lo, user_high_id=hi)
+    return {"ok": True, "friends": list_friends(user_id)}
+
+
+# ── Group membership management ──────────────────────────────────────────────
+
+def add_group_member(group_id: int, actor_id: int, user_id: int) -> dict:
+    g = Group.objects.filter(id=group_id, deleted_at__isnull=True).first()
+    if not g:
+        raise DomainError("NOT_FOUND", "group not found")
+    if not is_active_member(group_id, actor_id):
+        raise DomainError("FORBIDDEN", "only members can add people")
+    if not User.objects.filter(id=user_id).exists():
+        raise DomainError("NOT_FOUND", "user not found")
+    existing = GroupMember.objects.filter(group_id=group_id, user_id=user_id).first()
+    if existing:
+        if existing.left_at is not None:
+            existing.left_at = None
+            existing.save(update_fields=["left_at"])
+    else:
+        GroupMember.objects.create(group_id=group_id, user_id=user_id, role="member", in_rotation=g.rotation_enabled)
+    log_activity(actor_id, "group.member_added", f"group:{group_id}", {"user_id": user_id})
+    return get_group(group_id)
+
+
+def remove_group_member(group_id: int, actor_id: int, user_id: int) -> dict:
+    from django.utils import timezone
+
+    if not is_active_member(group_id, actor_id):
+        raise DomainError("FORBIDDEN", "only members can remove people")
+    # Guard: can't remove someone who still owes/is owed money (§ integrity).
+    bal = group_balances(group_id)
+    net = next((m["net_paise"] for m in bal["members"] if m["user_id"] == user_id), 0)
+    if net != 0:
+        raise DomainError("MEMBER_HAS_BALANCE", "settle up before removing this member")
+    m = GroupMember.objects.filter(group_id=group_id, user_id=user_id, left_at__isnull=True).first()
+    if m:
+        m.left_at = timezone.now()
+        m.save(update_fields=["left_at"])
+        log_activity(actor_id, "group.member_removed", f"group:{group_id}", {"user_id": user_id})
+    return get_group(group_id)
+
+
+@transaction.atomic
+def create_group(data: dict) -> dict:
+    member_ids = list(dict.fromkeys([data["created_by"], *data["member_ids"]]))
+    g = Group.objects.create(
+        name=data["name"],
+        type=data["type"],
+        rotation_enabled=data["rotation_enabled"],
+        rotation_mode=data["rotation_mode"],
+        rotation_rr_order=member_ids if data["rotation_mode"] == "round_robin" else [],
+        rotation_rr_pos=0,
+        created_by_id=data["created_by"],
+    )
+    for uid in member_ids:
+        GroupMember.objects.create(
+            group=g,
+            user_id=uid,
+            role="owner" if uid == data["created_by"] else "member",
+            in_rotation=data["rotation_enabled"],
+        )
+    log_activity(data["created_by"], "group.created", f"group:{g.id}", {"name": g.name})
+    return group_to_dict(g)
+
+
+def list_groups(user_id: int | None = None) -> list[dict]:
+    qs = Group.objects.filter(deleted_at__isnull=True).order_by("id")
+    out = []
+    for g in qs:
+        if user_id is not None and not is_active_member(g.id, user_id):
+            continue
+        out.append(group_to_dict(g))
+    return out
+
+
+def get_group(group_id: int) -> dict | None:
+    g = Group.objects.filter(id=group_id, deleted_at__isnull=True).first()
+    return group_to_dict(g) if g else None
+
+
+# ── Expenses ────────────────────────────────────────────────────────────────
+
+def _expense_to_response(e: Expense, shares: list[dict]) -> dict:
+    return {
+        "id": e.id,
+        "group_id": e.group_id,
+        "description": e.description,
+        "amount_paise": e.amount_paise,
+        "is_rotation": e.is_rotation,
+        "shares": [
+            {**s, "net_paise": s["paid_paise"] - s["owed_paise"]} for s in shares
+        ],
+        "created_at": _iso(e.created_at),
+    }
+
+
+def create_expense(data: dict, idempotency_key: str) -> tuple[int, dict]:
+    replay = IdempotencyRecord.objects.filter(key=idempotency_key).first()
+    if replay:
+        return 200, replay.body
+
+    with transaction.atomic():
+        group_id = data["group_id"]
+
+        # Authorization: payers & participants must be active members (§).
+        if group_id is not None:
+            everyone = {p["user_id"] for p in data["payers"]} | set(data["split"]["participants"])
+            for u in everyone:
+                if not is_active_member(group_id, u):
+                    raise DomainError("NOT_GROUP_MEMBER", f"user {u} is not an active member")
+
+        # Rotation expenses: participants must equal ALL active rotation members (§9.2).
+        if data["is_rotation"]:
+            if group_id is None:
+                raise DomainError("ROTATION_PARTICIPANTS_MISMATCH", "rotation expense needs a group")
+            rot_members = sorted(
+                active_members(group_id).filter(in_rotation=True).values_list("user_id", flat=True)
+            )
+            parts = sorted(data["split"]["participants"])
+            if rot_members != parts or len(data["payers"]) != 1:
+                raise DomainError("ROTATION_PARTICIPANTS_MISMATCH")
+
+        # Money math — largest-remainder, integer paise (§5). Throws §11 codes.
+        shares = compute_shares(data["amount_paise"], data["payers"], data["split"])
+
+        # Invariant I1/I2 belt-and-suspenders assert before persisting.
+        total_paid = sum(s["paid_paise"] for s in shares)
+        total_owed = sum(s["owed_paise"] for s in shares)
+        if total_paid != data["amount_paise"] or total_owed != data["amount_paise"]:
+            raise DomainError("PAYERS_SUM_MISMATCH", "invariant I1 violated")
+
+        e = Expense.objects.create(
+            group_id=group_id,
+            description=data["description"],
+            amount_paise=data["amount_paise"],
+            currency=data["currency"],
+            category_id=data["category_id"],
+            expense_date=data["expense_date"],
+            source=data["source"],
+            is_rotation=data["is_rotation"],
+            created_by_id=data["created_by"],
+            idempotency_key=uuid.UUID(idempotency_key) if _is_uuid(idempotency_key) else None,
+        )
+        ExpenseShare.objects.bulk_create(
+            [
+                ExpenseShare(
+                    expense=e,
+                    user_id=s["user_id"],
+                    paid_paise=s["paid_paise"],
+                    owed_paise=s["owed_paise"],
+                )
+                for s in shares
+            ]
+        )
+        log_activity(
+            data["created_by"],
+            "expense.created",
+            f"expense:{e.id}",
+            {"description": data["description"], "amount_paise": data["amount_paise"]},
+        )
+
+        body = _expense_to_response(e, shares)
+        IdempotencyRecord.objects.create(key=idempotency_key, status=201, body=body)
+        return 201, body
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
+def _shares_of(e: Expense) -> list[dict]:
+    return [
+        {"user_id": s.user_id, "paid_paise": s.paid_paise, "owed_paise": s.owed_paise}
+        for s in e.shares.all()
+    ]
+
+
+def list_group_expenses(group_id: int) -> list[dict]:
+    qs = (
+        Expense.objects.filter(group_id=group_id, deleted_at__isnull=True)
+        .order_by("-id")
+        .prefetch_related("shares")
+    )
+    return [_expense_to_response(e, _shares_of(e)) for e in qs]
+
+
+def get_expense(expense_id: int) -> dict | None:
+    e = (
+        Expense.objects.filter(id=expense_id, deleted_at__isnull=True)
+        .prefetch_related("shares")
+        .first()
+    )
+    return _expense_to_response(e, _shares_of(e)) if e else None
+
+
+def update_expense(expense_id: int, actor: int, data: dict) -> dict:
+    """Edit an expense in place: recompute shares from the new amount/split.
+    Membership rules mirror create_expense."""
+    with transaction.atomic():
+        e = Expense.objects.select_for_update().filter(id=expense_id, deleted_at__isnull=True).first()
+        if not e:
+            raise DomainError("NOT_FOUND", "expense not found")
+        group_id = e.group_id
+        if group_id is not None and not is_active_member(group_id, actor):
+            raise DomainError("FORBIDDEN", "only group members can edit")
+
+        if group_id is not None:
+            everyone = {p["user_id"] for p in data["payers"]} | set(data["split"]["participants"])
+            for u in everyone:
+                if not is_active_member(group_id, u):
+                    raise DomainError("NOT_GROUP_MEMBER", f"user {u} is not an active member")
+
+        shares = compute_shares(data["amount_paise"], data["payers"], data["split"])
+        total_paid = sum(s["paid_paise"] for s in shares)
+        total_owed = sum(s["owed_paise"] for s in shares)
+        if total_paid != data["amount_paise"] or total_owed != data["amount_paise"]:
+            raise DomainError("PAYERS_SUM_MISMATCH", "invariant I1 violated")
+
+        e.description = data["description"]
+        e.amount_paise = data["amount_paise"]
+        e.currency = data.get("currency", e.currency)
+        if data.get("expense_date"):
+            e.expense_date = data["expense_date"]
+        e.save(update_fields=["description", "amount_paise", "currency", "expense_date", "updated_at"])
+
+        e.shares.all().delete()
+        ExpenseShare.objects.bulk_create(
+            [ExpenseShare(expense=e, user_id=s["user_id"], paid_paise=s["paid_paise"], owed_paise=s["owed_paise"]) for s in shares]
+        )
+        log_activity(actor, "expense.updated", f"expense:{e.id}", {"description": data["description"], "amount_paise": data["amount_paise"]})
+        return _expense_to_response(e, shares)
+
+
+def soft_delete_expense(expense_id: int, actor: int) -> None:
+    from django.utils import timezone
+
+    e = Expense.objects.filter(id=expense_id, deleted_at__isnull=True).first()
+    if not e:
+        return
+    e.deleted_at = timezone.now()
+    e.save(update_fields=["deleted_at"])
+    log_activity(actor, "expense.deleted", f"expense:{expense_id}", {})
+
+
+def restore_expense(expense_id: int, actor: int) -> None:
+    e = Expense.objects.filter(id=expense_id, deleted_at__isnull=False).first()
+    if not e:
+        return
+    e.deleted_at = None
+    e.save(update_fields=["deleted_at"])
+    log_activity(actor, "expense.restored", f"expense:{expense_id}", {})
+
+
+# ── Comments ────────────────────────────────────────────────────────────────
+
+def _comment_to_dict(c: Comment) -> dict:
+    return {
+        "id": c.id,
+        "expense_id": c.expense_id,
+        "user_id": c.user_id,
+        "body": c.body,
+        "created_at": _iso(c.created_at),
+    }
+
+
+def list_comments(expense_id: int) -> list[dict]:
+    e = Expense.objects.filter(id=expense_id, deleted_at__isnull=True).first()
+    if not e:
+        raise DomainError("NOT_FOUND", "expense not found")
+    qs = Comment.objects.filter(expense_id=expense_id).order_by("id")
+    return [_comment_to_dict(c) for c in qs]
+
+
+def add_comment(expense_id: int, actor: int, body: str) -> dict:
+    body = (body or "").strip()
+    if not body:
+        raise DomainError("VALIDATION_ERROR", "comment body is required")
+    if len(body) > 2000:
+        raise DomainError("VALIDATION_ERROR", "comment is too long")
+    e = Expense.objects.filter(id=expense_id, deleted_at__isnull=True).first()
+    if not e:
+        raise DomainError("NOT_FOUND", "expense not found")
+    # Only members of the expense's group may comment (personal expenses: creator only).
+    if e.group_id is not None:
+        if not is_active_member(e.group_id, actor):
+            raise DomainError("FORBIDDEN", "only group members can comment")
+    elif e.created_by_id != actor:
+        raise DomainError("FORBIDDEN", "not allowed to comment")
+    c = Comment.objects.create(expense_id=expense_id, user_id=actor, body=body)
+    log_activity(actor, "comment.created", f"expense:{expense_id}", {"comment_id": c.id})
+    return _comment_to_dict(c)
+
+
+# ── Balances ────────────────────────────────────────────────────────────────
+
+def group_balances(group_id: int) -> dict:
+    shares: list[dict] = []
+    for e in Expense.objects.filter(group_id=group_id, deleted_at__isnull=True).prefetch_related("shares"):
+        shares.extend(_shares_of(e))
+    settlements = [
+        {
+            "from_user": s.from_user_id,
+            "to_user": s.to_user_id,
+            "amount_paise": s.amount_paise,
+            "status": s.status,
+            "deleted_at": _iso(s.deleted_at),
+        }
+        for s in Settlement.objects.filter(group_id=group_id, deleted_at__isnull=True)
+    ]
+    nets = compute_nets(shares, settlements)
+
+    # Ensure every active member shows up even with a zero balance.
+    for uid in active_members(group_id).values_list("user_id", flat=True):
+        nets.setdefault(uid, 0)
+    assert_balanced(nets)  # I3
+
+    members = [
+        {"user_id": uid, "net_paise": net}
+        for uid, net in sorted(nets.items())
+    ]
+    return {
+        "group_id": group_id,
+        "members": members,
+        "simplified_settlements": simplify(nets),
+    }
+
+
+# ── Turn to Pay ─────────────────────────────────────────────────────────────
+
+def whose_turn(group_id: int) -> dict:
+    group = Group.objects.filter(id=group_id, deleted_at__isnull=True).first()
+    if not group:
+        raise DomainError("ROTATION_DISABLED", "group not found")
+    if not group.rotation_enabled:
+        raise DomainError("ROTATION_DISABLED")
+
+    members = [
+        {"user_id": m.user_id, "in_rotation": m.in_rotation, "left_at": _iso(m.left_at)}
+        for m in active_members(group_id)
+    ]
+    expenses = []
+    for e in (
+        Expense.objects.filter(group_id=group_id, deleted_at__isnull=True, is_rotation=True)
+        .prefetch_related("shares")
+    ):
+        expenses.append(
+            {
+                "is_rotation": True,
+                "deleted_at": None,
+                "expense_date": e.expense_date.isoformat(),
+                "shares": _shares_of(e),
+            }
+        )
+
+    if group.rotation_mode == "round_robin":
+        payer = next_payer_round_robin(group.rotation_rr_order, group.rotation_rr_pos)
+        if payer is None:
+            raise DomainError("ROTATION_DISABLED", "no rotation order set")
+        nets = compute_rotation_nets(members, expenses)
+        max_abs = max((abs(v["net"]) for v in nets.values()), default=0)
+        return {
+            "group_id": group_id,
+            "mode": "round_robin",
+            "next_payer": {
+                "user_id": payer,
+                "rotation_net_paise": nets.get(payer, {}).get("net", 0),
+            },
+            "max_abs_rotation_net_paise": max_abs,
+            "reason": "Round-robin order",
+        }
+
+    t = next_payer_balanced(members, expenses)
+    if t is None:
+        raise DomainError("ROTATION_DISABLED", "no rotation members")
+    behind = (
+        f"Behind by ₹{abs(t.rotation_net_paise) / 100} in the rotation"
+        if t.rotation_net_paise < 0
+        else "Fairly balanced"
+    )
+    return {
+        "group_id": group_id,
+        "mode": "balanced",
+        "next_payer": {"user_id": t.next_payer, "rotation_net_paise": t.rotation_net_paise},
+        "max_abs_rotation_net_paise": t.max_abs_rotation_net_paise,
+        "reason": behind,
+    }
+
+
+# ── Settlements ─────────────────────────────────────────────────────────────
+
+def create_settlement(data: dict, idempotency_key: str) -> tuple[int, dict]:
+    replay = IdempotencyRecord.objects.filter(key=idempotency_key).first()
+    if replay:
+        return 200, replay.body
+
+    with transaction.atomic():
+        if data["from_user"] == data["to_user"]:
+            raise DomainError("NOT_GROUP_MEMBER", "from_user must differ from to_user")
+        creditor = User.objects.filter(id=data["to_user"]).first()
+        if not creditor:
+            raise DomainError("NOT_GROUP_MEMBER", "creditor not found")
+
+        intent = build_upi_intent(
+            vpa=creditor.upi_vpa,
+            payee_name=creditor.name,
+            amount_paise=data["amount_paise"],
+            note=data.get("note") or "Squared Up",
+        )
+        method = "upi" if (data["method"] == "upi" and intent) else "manual"
+
+        s = Settlement.objects.create(
+            group_id=data["group_id"],
+            from_user_id=data["from_user"],
+            to_user_id=data["to_user"],
+            amount_paise=data["amount_paise"],
+            method=method,
+            status="pending",
+            note=data.get("note"),
+            idempotency_key=uuid.UUID(idempotency_key) if _is_uuid(idempotency_key) else None,
+        )
+        log_activity(
+            data["from_user"],
+            "settlement.created",
+            f"settlement:{s.id}",
+            {"amount_paise": data["amount_paise"], "to": data["to_user"]},
+        )
+
+        body = {
+            "id": s.id,
+            "status": s.status,
+            "method": method,
+            "upi_intent": intent if method == "upi" else None,
+            "requires_confirmation": True,
+        }
+        IdempotencyRecord.objects.create(key=idempotency_key, status=201, body=body)
+        return 201, body
+
+
+def _settlement_to_dict(s: Settlement) -> dict:
+    return {
+        "id": s.id,
+        "group_id": s.group_id,
+        "from_user": s.from_user_id,
+        "to_user": s.to_user_id,
+        "amount_paise": s.amount_paise,
+        "method": s.method,
+        "status": s.status,
+        "note": s.note,
+        "created_at": _iso(s.created_at),
+        "confirmed_at": _iso(s.confirmed_at),
+    }
+
+
+def confirm_settlement(settlement_id: int) -> dict:
+    from django.utils import timezone
+
+    s = Settlement.objects.filter(id=settlement_id, deleted_at__isnull=True).first()
+    if not s:
+        raise DomainError("NOT_GROUP_MEMBER", "settlement not found")
+    if s.status == "confirmed":
+        return _settlement_to_dict(s)
+    s.status = "confirmed"
+    s.confirmed_at = timezone.now()
+    s.save(update_fields=["status", "confirmed_at"])
+    log_activity(s.from_user_id, "settlement.confirmed", f"settlement:{s.id}", {})
+    return _settlement_to_dict(s)
+
+
+def dispute_settlement(settlement_id: int) -> dict:
+    s = Settlement.objects.filter(id=settlement_id, deleted_at__isnull=True).first()
+    if not s:
+        raise DomainError("NOT_GROUP_MEMBER", "settlement not found")
+    s.status = "disputed"
+    s.save(update_fields=["status"])
+    log_activity(s.from_user_id, "settlement.disputed", f"settlement:{s.id}", {})
+    return _settlement_to_dict(s)
+
+
+# ── Activity ────────────────────────────────────────────────────────────────
+
+def _activity_to_dict(a: ActivityEvent) -> dict:
+    return {
+        "id": a.id,
+        "actor": a.actor_id,
+        "type": a.type,
+        "target": a.target,
+        "payload": a.payload,
+        "created_at": _iso(a.created_at),
+    }
+
+
+def recent_activity(user_id: int | None = None) -> list[dict]:
+    """Feed for the current user: events they authored, plus events in any group
+    they belong to. Falls back to the global feed when no user is given."""
+    rows = list(ActivityEvent.objects.order_by("-id")[:300])
+    if user_id is None:
+        return [_activity_to_dict(a) for a in rows[:100]]
+
+    my_group_ids = set(
+        GroupMember.objects.filter(user_id=user_id, left_at__isnull=True).values_list("group_id", flat=True)
+    )
+    out = []
+    for a in rows:
+        target = a.target or ""
+        gid = None
+        if target.startswith("group:"):
+            try:
+                gid = int(target.split(":", 1)[1])
+            except ValueError:
+                gid = None
+        payload = a.payload or {}
+        relevant = (
+            a.actor_id == user_id
+            or (gid is not None and gid in my_group_ids)
+            or payload.get("to") == user_id
+            or payload.get("user_id") == user_id
+        )
+        if relevant:
+            out.append(_activity_to_dict(a))
+        if len(out) >= 100:
+            break
+    return out
+
+
+# ── Settlement history ───────────────────────────────────────────────────────
+
+def list_settlements(user_id: int, group_id: int | None = None) -> list[dict]:
+    from django.db.models import Q
+
+    qs = Settlement.objects.filter(deleted_at__isnull=True).order_by("-id")
+    if group_id is not None:
+        qs = qs.filter(group_id=group_id)
+    else:
+        qs = qs.filter(Q(from_user_id=user_id) | Q(to_user_id=user_id))
+    return [_settlement_to_dict(s) for s in qs[:200]]
