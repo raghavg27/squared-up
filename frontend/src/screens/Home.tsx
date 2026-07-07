@@ -95,31 +95,35 @@ export function Home() {
   const owed = overall >= 0;
   const animatedOverall = useCountUp(overall);
   const [remindMsg, setRemindMsg] = useState<string | null>(null);
+  const [remindingId, setRemindingId] = useState<number | null>(null);
   const [movesOpen, setMovesOpen] = useState(false);
   const settled = moves.gets.length === 0 && moves.pays.length === 0;
 
-  async function remind() {
-    // Everyone who owes me, summed across groups (from simplified settlements).
-    const byDebtor = new Map<number, number>();
-    for (const g of groups) {
-      const b = balByGroup[g.id];
-      if (!b) continue;
-      for (const s of b.simplified_settlements) {
-        if (s.to_user === me?.id) byDebtor.set(s.from_user, (byDebtor.get(s.from_user) ?? 0) + s.amount_paise);
-      }
+  const flash = (m: string) => { setRemindMsg(m); setTimeout(() => setRemindMsg(null), 2500); };
+
+  // A per-person nudge, worded as if Squared Up composed it on the user's
+  // behalf. The user forwards this to that one debtor — nothing about anyone
+  // else's balance leaks into it.
+  async function remindOne(uid: number, paise: number) {
+    if (!me) return;
+    setRemindingId(uid);
+    const myName = (me.name ?? '').trim().split(/\s+/)[0] || 'your friend';
+    // Only offer a UPI handle when one is actually on the profile — never a
+    // dangling "settle up over UPI:" with nothing after it.
+    const vpa = me.upi_vpa?.trim();
+    const payLine = vpa ? `\n\nYou can settle up over UPI: ${vpa}` : '';
+    const msg =
+      `Hi ${name(uid)}, a gentle reminder from Squared Up 👋\n\n` +
+      `You have a pending balance of ${rupees(paise)} with ${myName}. ` +
+      `Whenever it's convenient, it'd be great to square things up.${payLine}\n\n` +
+      `— Sent via Squared Up, keeping shared expenses fair and friendly.`;
+    try {
+      const out = await shareText(msg, `Reminder for ${name(uid)}`);
+      if (out === 'copied') flash(`Reminder for ${name(uid)} copied — send it over`);
+      else if (out === 'failed') flash("Couldn't open share — try again");
+    } finally {
+      setRemindingId(null);
     }
-    if (byDebtor.size === 0) {
-      setRemindMsg('No one owes you right now.');
-      setTimeout(() => setRemindMsg(null), 2500);
-      return;
-    }
-    const lines = [...byDebtor.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([uid, paise]) => `• ${name(uid)}: ${rupees(paise)}`);
-    const vpa = me?.upi_vpa ? `\nPay me on UPI: ${me.upi_vpa}` : '';
-    const msg = `Friendly reminder from Squared Up — here's what's still owed to me:\n${lines.join('\n')}${vpa}`;
-    const out = await shareText(msg, 'Payment reminder');
-    if (out === 'copied') { setRemindMsg('Reminder copied to clipboard'); setTimeout(() => setRemindMsg(null), 2500); }
   }
 
   return (
@@ -182,7 +186,10 @@ export function Home() {
               {!settled && <Icon name={movesOpen ? 'expand_less' : 'expand_more'} style={{ fontSize: 20 }} />}
             </button>
             <button
-              onClick={remind}
+              onClick={() => {
+                if (moves.gets.length === 0) { flash('No one owes you right now.'); return; }
+                setMovesOpen(true);
+              }}
               className="flex-1 border border-neutral-900 text-ink h-[52px] rounded-button font-heading text-[17px] font-semibold active:scale-95 transition-transform"
             >
               Remind
@@ -222,23 +229,23 @@ export function Home() {
                     );
                   })}
                   {moves.gets.map(([uid, n]) => (
-                    <div
+                    <button
                       key={`g${uid}`}
-                      className="bg-surface-container-lowest rounded-card border border-neutral-300 card-shadow px-3 py-2.5 flex items-center gap-3"
+                      onClick={() => remindOne(uid, n)}
+                      disabled={remindingId === uid}
+                      className="bg-surface-container-lowest rounded-card border border-neutral-300 card-shadow px-3 py-2.5 flex items-center gap-3 active:scale-[0.98] transition-transform disabled:opacity-60"
                     >
                       <Avatar name={name(uid)} size={36} />
                       <div className="flex flex-col flex-1 min-w-0 text-left">
                         <span className="font-body text-[15px] text-ink truncate">Get from {name(uid)}</span>
-                        <span className="font-caption text-caption text-neutral-600">They owe you</span>
+                        <span className="font-caption text-caption text-primary">
+                          {remindingId === uid ? 'Sharing…' : 'Tap to remind'}
+                        </span>
                       </div>
                       <span className="font-currency text-[17px] font-semibold text-success tnum">{rupees(n)}</span>
-                    </div>
-                  ))}
-                  {moves.gets.length > 0 && (
-                    <button onClick={remind} className="font-body text-[15px] text-primary font-medium mt-1 self-start">
-                      Send a reminder →
+                      <Icon name="notifications" className="text-neutral-600" style={{ fontSize: 20 }} />
                     </button>
-                  )}
+                  ))}
                 </>
               )}
             </div>
