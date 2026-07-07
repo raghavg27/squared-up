@@ -28,9 +28,13 @@ urlpatterns = [
 
     # ── Expenses ──
     path("expenses", views.expenses_create),  # POST
+    path("expenses/personal", views.personal_expenses),  # GET non-group splits (?with=uid)
     path("expenses/<int:pk>", views.expense_detail),  # GET / PATCH / DELETE
     path("expenses/<int:pk>/restore", views.expenses_restore),  # POST
     path("expenses/<int:pk>/comments", views.expense_comments),  # GET / POST
+
+    # ── Balances ──
+    path("balances/personal", views.personal_balances),  # GET pairwise non-group nets
 
     # ── Settlements ──
     path("settlements", views.settlements),  # GET history / POST create

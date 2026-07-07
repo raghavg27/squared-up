@@ -85,7 +85,7 @@ export function GroupExpenses() {
                     <div className="flex flex-col items-end shrink-0 pl-2">
                       <span className="font-currency text-[15px] text-ink tnum">{rupees(e.amount_paise)}</span>
                       <span className={`text-[11px] font-medium ${net > 0 ? 'text-success' : net < 0 ? 'text-primary' : 'text-neutral-600'}`}>
-                        {net > 0 ? `Lent ${rupees0(net)}` : net < 0 ? `Borrowed ${rupees0(-net)}` : 'Settled'}
+                        {net > 0 ? `Lent ${rupees0(net)}` : net < 0 ? `Borrowed ${rupees0(-net)}` : 'Squared up'}
                       </span>
                     </div>
                   </Link>

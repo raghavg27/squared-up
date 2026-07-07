@@ -378,7 +378,12 @@ def create_expense(data: dict, idempotency_key: str) -> tuple[int, dict]:
             data["created_by"],
             "expense.created",
             f"expense:{e.id}",
-            {"group_id": group_id, "description": data["description"], "amount_paise": data["amount_paise"]},
+            {
+                "group_id": group_id,
+                "description": data["description"],
+                "amount_paise": data["amount_paise"],
+                "participants": sorted({s["user_id"] for s in shares}),
+            },
         )
 
         body = _expense_to_response(e, shares)
@@ -408,6 +413,25 @@ def list_group_expenses(group_id: int) -> list[dict]:
         .prefetch_related("shares")
     )
     return [_expense_to_response(e, _shares_of(e)) for e in qs]
+
+
+def list_personal_expenses(user_id: int, other_id: int | None = None) -> list[dict]:
+    """Non-group ("personal") expenses the user takes part in, newest first.
+    These are as first-class as group expenses — the caller sees any split they
+    are a share of. Optionally scoped to a single counterparty (``other_id``)."""
+    mine = ExpenseShare.objects.filter(user_id=user_id).values_list("expense_id", flat=True)
+    qs = (
+        Expense.objects.filter(id__in=list(mine), group__isnull=True, deleted_at__isnull=True)
+        .order_by("-id")
+        .prefetch_related("shares")
+    )
+    out = []
+    for e in qs:
+        shares = _shares_of(e)
+        if other_id is not None and not any(s["user_id"] == other_id for s in shares):
+            continue
+        out.append(_expense_to_response(e, shares))
+    return out
 
 
 def get_expense(expense_id: int, actor: int) -> dict:
@@ -452,7 +476,7 @@ def update_expense(expense_id: int, actor: int, data: dict) -> dict:
         ExpenseShare.objects.bulk_create(
             [ExpenseShare(expense=e, user_id=s["user_id"], paid_paise=s["paid_paise"], owed_paise=s["owed_paise"]) for s in shares]
         )
-        log_activity(actor, "expense.updated", f"expense:{e.id}", {"group_id": group_id, "description": data["description"], "amount_paise": data["amount_paise"]})
+        log_activity(actor, "expense.updated", f"expense:{e.id}", {"group_id": group_id, "description": data["description"], "amount_paise": data["amount_paise"], "participants": sorted({s["user_id"] for s in shares})})
         return _expense_to_response(e, shares)
 
 
@@ -464,10 +488,12 @@ def soft_delete_expense(expense_id: int, actor: int) -> None:
         return
     if not _can_access_expense(e, actor):
         raise DomainError("NOT_FOUND", "expense not found")
+    participants = sorted(e.shares.values_list("user_id", flat=True))
     e.deleted_at = timezone.now()
     e.save(update_fields=["deleted_at"])
     log_activity(actor, "expense.deleted", f"expense:{expense_id}",
-                 {"group_id": e.group_id, "description": e.description, "amount_paise": e.amount_paise})
+                 {"group_id": e.group_id, "description": e.description, "amount_paise": e.amount_paise,
+                  "participants": participants})
 
 
 def restore_expense(expense_id: int, actor: int) -> None:
@@ -551,6 +577,48 @@ def group_balances(group_id: int) -> dict:
         "group_id": group_id,
         "members": members,
         "simplified_settlements": simplify(nets),
+    }
+
+
+def personal_balances(user_id: int) -> dict:
+    """Pairwise balances from non-group ("personal") expenses & settlements.
+
+    Each personal expense is settled internally (via simplify) so multi-party
+    personal expenses still yield correct pairwise debts; confirmed non-group
+    settlements then move each pair toward zero. Returns nets from ``user_id``'s
+    point of view: + means they owe me, − means I owe them."""
+    pair: dict[int, int] = {}
+
+    expenses = (
+        Expense.objects.filter(group__isnull=True, deleted_at__isnull=True)
+        .prefetch_related("shares")
+    )
+    for e in expenses:
+        share_rows = list(e.shares.all())
+        if not any(s.user_id == user_id for s in share_rows):
+            continue
+        nets = {s.user_id: s.paid_paise - s.owed_paise for s in share_rows}
+        for t in simplify(nets):
+            if t["from_user"] == user_id:  # I owe the creditor
+                pair[t["to_user"]] = pair.get(t["to_user"], 0) - t["amount_paise"]
+            elif t["to_user"] == user_id:  # a debtor owes me
+                pair[t["from_user"]] = pair.get(t["from_user"], 0) + t["amount_paise"]
+
+    for s in Settlement.objects.filter(
+        group__isnull=True, deleted_at__isnull=True, status="confirmed"
+    ):
+        if s.from_user_id == user_id:  # I paid them → I owe them less
+            pair[s.to_user_id] = pair.get(s.to_user_id, 0) + s.amount_paise
+        elif s.to_user_id == user_id:  # they paid me → they owe me less
+            pair[s.from_user_id] = pair.get(s.from_user_id, 0) - s.amount_paise
+
+    return {
+        "user_id": user_id,
+        "counterparties": [
+            {"user_id": uid, "net_paise": net}
+            for uid, net in sorted(pair.items())
+            if net != 0
+        ],
     }
 
 
@@ -750,11 +818,13 @@ def recent_activity(user_id: int | None = None) -> list[dict]:
         if gid is None:
             pgid = payload.get("group_id")
             gid = pgid if isinstance(pgid, int) else None
+        participants = payload.get("participants")
         relevant = (
             a.actor_id == user_id
             or (gid is not None and gid in my_group_ids)
             or payload.get("to") == user_id
             or payload.get("user_id") == user_id
+            or (isinstance(participants, list) and user_id in participants)
         )
         if relevant:
             out.append(_activity_to_dict(a))

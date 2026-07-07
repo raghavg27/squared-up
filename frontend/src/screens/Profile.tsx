@@ -40,7 +40,7 @@ export function Profile() {
       <div className="w-full flex flex-col gap-4 mt-8 stagger">
         <SettingRow icon="group" title="Friends" sub="People you split with" onClick={() => nav('/friends')} />
         <SettingRow icon="receipt_long" title="Activity" sub="Your recent transactions" onClick={() => nav('/activity')} />
-        <SettingRow icon="person" title="Edit profile" sub="Name, UPI ID, language" onClick={() => nav('/profile/edit')} />
+        <SettingRow icon="person" title="Edit profile" sub="Name, UPI ID" onClick={() => nav('/profile/edit')} />
         <SettingRow icon="account_balance_wallet" title="Primary UPI App" sub={getUpiApp().label} onClick={() => nav('/profile/upi-app')} />
       </div>
 

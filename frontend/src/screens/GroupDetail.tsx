@@ -46,7 +46,7 @@ export function GroupDetail() {
   }
 
   return (
-    <div className="min-h-screen pb-28 bg-paper">
+    <div className={`min-h-screen bg-paper ${topDebt ? 'pb-44' : 'pb-28'}`}>
       <header className="bg-paper sticky top-0 z-40 flex items-center justify-between px-mobile py-3">
         <button onClick={() => nav(-1)} className="w-10 h-10 flex items-center justify-center text-primary active:scale-95 transition-transform">
           <Icon name="arrow_back" />
@@ -130,7 +130,7 @@ export function GroupDetail() {
                   <div className="flex flex-col items-end shrink-0 pl-2">
                     <span className="font-currency text-[17px] font-medium text-ink tnum">{rupees0(e.amount_paise)}</span>
                     <span className={`text-[11px] font-medium ${net > 0 ? 'text-success' : net < 0 ? 'text-primary' : 'text-neutral-600'}`}>
-                      {net > 0 ? `Lent ${rupees0(net)}` : net < 0 ? `Borrowed ${rupees0(-net)}` : 'Settled'}
+                      {net > 0 ? `Lent ${rupees0(net)}` : net < 0 ? `Borrowed ${rupees0(-net)}` : 'Squared up'}
                     </span>
                   </div>
                 </Link>
@@ -141,14 +141,23 @@ export function GroupDetail() {
         </section>
       </main>
 
-      {/* Settle Up bar */}
-      <div className="fixed bottom-0 left-0 right-0 max-w-[28rem] mx-auto px-mobile pb-5 pt-3 safe-bottom bg-gradient-to-t from-paper via-paper to-transparent">
+      {/* Action bar */}
+      <div className="fixed bottom-0 left-0 right-0 max-w-[28rem] mx-auto px-mobile pb-5 pt-3 safe-bottom bg-gradient-to-t from-paper via-paper to-transparent flex flex-col gap-2">
+        {topDebt && (
+          <button
+            onClick={() => nav(`/settle/${groupId}/${topDebt.to_user}`)}
+            className="w-full h-[52px] bg-surface-container-lowest text-primary border border-neutral-300 rounded-button font-heading text-[17px] font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+          >
+            Square up
+            <Icon name="payments" style={{ fontSize: 22 }} />
+          </button>
+        )}
         <button
-          onClick={() => topDebt ? nav(`/settle/${groupId}/${topDebt.to_user}`) : nav(`/groups/${groupId}/add`)}
+          onClick={() => nav(`/groups/${groupId}/add`)}
           className="w-full h-[52px] bg-primary text-on-primary rounded-button font-heading text-[17px] font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
         >
-          {topDebt ? 'Settle Up' : 'Add Expense'}
-          <Icon name={topDebt ? 'payments' : 'add'} style={{ fontSize: 22 }} />
+          Add Expense
+          <Icon name="add" style={{ fontSize: 22 }} />
         </button>
       </div>
     </div>

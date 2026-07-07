@@ -22,7 +22,10 @@ export function Friends() {
   useEffect(() => {
     if (!me) return;
     let cancelled = false;
-    Promise.all(groups.map((g) => apiClient.balances(g.id).catch(() => null))).then((rows) => {
+    Promise.all([
+      Promise.all(groups.map((g) => apiClient.balances(g.id).catch(() => null))),
+      apiClient.personalBalances().catch(() => null),
+    ]).then(([rows, personal]) => {
       if (cancelled) return;
       const m = new Map<number, number>();
       for (const b of rows) {
@@ -31,6 +34,7 @@ export function Friends() {
           if (s.to_user === me.id) m.set(s.from_user, (m.get(s.from_user) ?? 0) + s.amount_paise);
         }
       }
+      for (const c of personal?.counterparties ?? []) m.set(c.user_id, (m.get(c.user_id) ?? 0) + c.net_paise);
       setNets(m);
     });
     return () => { cancelled = true; };
@@ -92,9 +96,9 @@ export function Friends() {
             {friends.map((u) => {
               const net = nets.get(u.id) ?? 0;
               return (
-                <Row key={u.id} u={u}>
+                <Row key={u.id} u={u} onClick={() => nav(`/friends/${u.id}`)}>
                   {net === 0 ? (
-                    <span className="font-caption text-caption text-neutral-600">Settled</span>
+                    <span className="font-caption text-caption text-neutral-600">Squared up</span>
                   ) : (
                     <div className="flex flex-col items-end">
                       <span className={`font-currency text-[15px] font-semibold tnum ${net > 0 ? 'text-success' : 'text-primary'}`}>
@@ -114,9 +118,12 @@ export function Friends() {
   );
 }
 
-function Row({ u, children }: { u: User; children: React.ReactNode }) {
+function Row({ u, children, onClick }: { u: User; children: React.ReactNode; onClick?: () => void }) {
   return (
-    <div className="bg-surface-container-lowest rounded-card p-3 border border-neutral-300 card-shadow flex items-center gap-3">
+    <div
+      onClick={onClick}
+      className={`bg-surface-container-lowest rounded-card p-3 border border-neutral-300 card-shadow flex items-center gap-3 ${onClick ? 'active:scale-[0.99] transition-transform cursor-pointer' : ''}`}
+    >
       <Avatar name={u.name || u.phone || '?'} size={44} />
       <div className="flex flex-col flex-1 min-w-0">
         <span className="font-heading text-[17px] font-semibold text-ink truncate">{u.name || 'Unnamed'}</span>

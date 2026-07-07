@@ -87,20 +87,38 @@ export function ExpenseDetail() {
           </Row>
         </Card>
 
-        {/* Group */}
-        <Card icon="group" title="Group">
-          <Row>
-            <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-button flex items-center justify-center bg-tertiary text-white`}>
-                <Icon name={gStyle.icon} fill style={{ fontSize: 22 }} />
+        {/* Group / Personal */}
+        {exp.group_id === null ? (
+          <Card icon="person" title="Personal split">
+            <Row>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-button flex items-center justify-center bg-teal/15 text-tertiary">
+                  <Icon name="group" fill style={{ fontSize: 22 }} />
+                </div>
+                <div className="flex flex-col">
+                  <span className="font-heading text-[17px] font-semibold text-ink">No group</span>
+                  <span className="font-caption text-caption text-on-surface-variant">
+                    {exp.shares.filter((s) => s.user_id !== me?.id).map((s) => name(s.user_id)).join(', ') || 'Just you'}
+                  </span>
+                </div>
               </div>
-              <div className="flex flex-col">
-                <span className="font-heading text-[17px] font-semibold text-ink">{gName}</span>
-                <span className="font-caption text-caption text-on-surface-variant">{grp?.members.length ?? exp.shares.length} members</span>
+            </Row>
+          </Card>
+        ) : (
+          <Card icon="group" title="Group">
+            <Row>
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-button flex items-center justify-center bg-tertiary text-white`}>
+                  <Icon name={gStyle.icon} fill style={{ fontSize: 22 }} />
+                </div>
+                <div className="flex flex-col">
+                  <span className="font-heading text-[17px] font-semibold text-ink">{gName}</span>
+                  <span className="font-caption text-caption text-on-surface-variant">{grp?.members.length ?? exp.shares.length} members</span>
+                </div>
               </div>
-            </div>
-          </Row>
-        </Card>
+            </Row>
+          </Card>
+        )}
 
         {/* Split Breakdown */}
         <Card icon="receipt_long" title="Split Breakdown">

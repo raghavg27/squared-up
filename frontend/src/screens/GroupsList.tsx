@@ -24,7 +24,10 @@ export function GroupsList() {
   return (
     <div className="min-h-screen pb-28 bg-paper">
       <header className="bg-paper sticky top-0 z-40 flex items-center justify-between px-mobile py-3">
-        <h1 className="font-heading text-[22px] font-bold text-primary">Squared Up</h1>
+        <div className="flex items-center gap-2">
+          <img src="/logo.png" alt="" width={28} height={28} style={{ objectFit: 'contain' }} />
+          <h1 className="font-heading text-[22px] font-bold text-primary">Squared Up</h1>
+        </div>
         <button onClick={() => nav('/groups/new')} className="w-10 h-10 flex items-center justify-center text-primary active:scale-95 transition-transform">
           <Icon name="add" />
         </button>

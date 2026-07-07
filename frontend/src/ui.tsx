@@ -149,7 +149,7 @@ export function InviteCard({ query, busy, onInvite }: { query: string; busy?: bo
         {creating ? 'Adding…' : 'Add'}
       </button>
       <p className="font-caption text-caption text-neutral-600 text-center">
-        {isPhone ? "They'll see this group when they sign in with that number." : 'You can settle on their behalf until they join.'}
+        {isPhone ? "They'll see this group when they sign in with that number." : 'You can square up on their behalf until they join.'}
       </p>
     </div>
   );

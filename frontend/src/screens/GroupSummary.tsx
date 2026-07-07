@@ -60,7 +60,7 @@ export function GroupSummary() {
           {allSettled ? (
             <div className="border border-dashed border-neutral-300 rounded-card py-10 flex flex-col items-center gap-2 text-tertiary">
               <Icon name="celebration" fill style={{ fontSize: 30 }} />
-              <p className="font-body text-[15px] text-neutral-600">Everyone is settled up.</p>
+              <p className="font-body text-[15px] text-neutral-600">Everyone is squared up.</p>
             </div>
           ) : (
             <div className="flex flex-col gap-3">
@@ -85,7 +85,7 @@ export function GroupSummary() {
                         onClick={() => nav(`/settle/${gid}/${s.to_user}`)}
                         className="px-4 h-9 shrink-0 rounded-button bg-primary text-on-primary font-body text-[15px] font-medium active:scale-95 transition-transform"
                       >
-                        Settle
+                        Square up
                       </button>
                     )}
                   </div>
@@ -107,7 +107,7 @@ export function GroupSummary() {
                   <Avatar name={name(m.user_id)} size={40} me={isMe} />
                   <span className="flex-1 font-body text-[17px] text-ink">{isMe ? 'You' : name(m.user_id)}</span>
                   <span className={`font-currency text-[15px] font-semibold tnum ${net === 0 ? 'text-neutral-600' : net > 0 ? 'text-success' : 'text-primary'}`}>
-                    {net === 0 ? 'Settled' : `${net > 0 ? '+' : '-'}${rupees(Math.abs(net))}`}
+                    {net === 0 ? 'Squared up' : `${net > 0 ? '+' : '-'}${rupees(Math.abs(net))}`}
                   </span>
                 </div>
               );

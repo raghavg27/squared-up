@@ -24,7 +24,7 @@ export function UpiAppSettings() {
 
       <main className="px-mobile flex flex-col gap-4 mt-4">
         <p className="font-body text-[15px] text-on-surface-variant">
-          We'll surface this app first when you settle up. Any installed UPI app can still complete the payment.
+          We'll surface this app first when you square up. Any installed UPI app can still complete the payment.
         </p>
         <div className="bg-surface-container-lowest rounded-card border border-neutral-300 card-shadow divide-y divide-neutral-100">
           {UPI_APPS.map((a) => {

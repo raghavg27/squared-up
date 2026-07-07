@@ -18,6 +18,10 @@ export interface Balances {
   members: { user_id: number; net_paise: number }[];
   simplified_settlements: { from_user: number; to_user: number; amount_paise: number }[];
 }
+export interface PersonalBalances {
+  user_id: number;
+  counterparties: { user_id: number; net_paise: number }[];
+}
 export interface Turn {
   group_id: number; mode: string;
   next_payer: { user_id: number; rotation_net_paise: number };
@@ -145,8 +149,11 @@ export const apiClient = {
 
   // Expenses
   expenses: (gid: number) => req<Expense[]>(`/groups/${gid}/expenses`),
+  personalExpenses: (withUserId?: number) =>
+    req<Expense[]>(`/expenses/personal${withUserId ? `?with=${withUserId}` : ''}`),
   expense: (id: number) => req<Expense>(`/expenses/${id}`),
   balances: (gid: number) => req<Balances>(`/groups/${gid}/balances`),
+  personalBalances: () => req<PersonalBalances>('/balances/personal'),
   turn: (gid: number) => req<Turn>(`/groups/${gid}/turn`),
   createExpense: (input: unknown) => req<Expense>('/expenses', { method: 'POST', body: JSON.stringify(input) }, true),
   updateExpense: (id: number, input: unknown) => req<Expense>(`/expenses/${id}`, { method: 'PATCH', body: JSON.stringify(input) }),

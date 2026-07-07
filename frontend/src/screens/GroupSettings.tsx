@@ -71,14 +71,14 @@ export function GroupSettings() {
                   <div className="flex flex-col flex-1 min-w-0">
                     <span className="font-body text-[17px] text-ink">{isMe ? 'You' : name(uid)}</span>
                     <span className={`font-caption text-caption ${net === 0 ? 'text-neutral-600' : net > 0 ? 'text-success' : 'text-primary'}`}>
-                      {net === 0 ? 'Settled up' : net > 0 ? 'Is owed money' : 'Owes money'}
+                      {net === 0 ? 'Squared up' : net > 0 ? 'Is owed money' : 'Owes money'}
                     </span>
                   </div>
                   {!isMe && (
                     <button
                       onClick={() => remove(uid)}
                       disabled={busyId === uid || net !== 0}
-                      title={net !== 0 ? 'Settle up before removing' : 'Remove'}
+                      title={net !== 0 ? 'Square up before removing' : 'Remove'}
                       className="w-9 h-9 rounded-full flex items-center justify-center text-primary disabled:text-neutral-300 active:scale-95 transition-transform"
                     >
                       <Icon name="person_remove" style={{ fontSize: 20 }} />
@@ -88,7 +88,7 @@ export function GroupSettings() {
               );
             })}
           </div>
-          <p className="font-caption text-caption text-neutral-600">A member can only be removed once their balance is settled.</p>
+          <p className="font-caption text-caption text-neutral-600">A member can only be removed once their balance is squared up.</p>
         </section>
       </main>
     </div>

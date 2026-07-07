@@ -125,6 +125,14 @@ def group_expenses(request, pk: int):
     return Response(services.list_group_expenses(pk))
 
 
+@api_view(["GET"])
+def personal_expenses(request):
+    # Non-group splits the caller takes part in. ?with=<uid> scopes to one friend.
+    with_ = request.query_params.get("with")
+    other = int(with_) if with_ else None
+    return Response(services.list_personal_expenses(_actor(request), other))
+
+
 @api_view(["GET", "PATCH", "DELETE"])
 def expense_detail(request, pk: int):
     if request.method == "PATCH":
@@ -157,6 +165,11 @@ def expense_comments(request, pk: int):
 def group_balances(request, pk: int):
     services.require_group_member(pk, _actor(request))
     return Response(services.group_balances(pk))
+
+
+@api_view(["GET"])
+def personal_balances(request):
+    return Response(services.personal_balances(_actor(request)))
 
 
 @api_view(["GET"])

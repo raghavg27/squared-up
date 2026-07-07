@@ -44,7 +44,7 @@ export function Onboarding() {
         <div className="mt-5">
           <label className="font-caption text-caption text-on-surface-variant block mb-2">UPI ID <span className="text-neutral-600">(optional)</span></label>
           <input value={vpa} onChange={(e) => setVpa(e.target.value)} className="input-warm font-currency" placeholder="priya@okhdfc" />
-          <p className="font-caption text-caption text-neutral-600 mt-2">So friends can settle up with you in one tap.</p>
+          <p className="font-caption text-caption text-neutral-600 mt-2">So friends can square up with you in one tap.</p>
         </div>
 
         {err && <p className="text-primary font-caption text-caption mt-4">{err}</p>}

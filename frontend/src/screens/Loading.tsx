@@ -1,12 +1,10 @@
-import { Icon } from '../ui.js';
-
 export function Logo({ size = 88 }: { size?: number }) {
   return (
     <div
       className="bg-surface-container-lowest rounded-[20px] card-shadow border border-neutral-100 flex items-center justify-center"
       style={{ width: size, height: size }}
     >
-      <Icon name="check_circle" className="text-primary" style={{ fontSize: size * 0.44 }} />
+      <img src="/logo.png" alt="Squared Up" width={size * 0.62} height={size * 0.62} style={{ objectFit: 'contain' }} />
     </div>
   );
 }

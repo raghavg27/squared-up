@@ -18,6 +18,10 @@ services:
 
   backend:
     build: ./backend
+    # Published to host so `npm run dev` (vite :5173) can proxy /api → :8000.
+    # The nginx frontend reaches it over the compose network regardless.
+    ports:
+      - '8000:8000'
     environment:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-in-prod-please-32-bytes-min}
       DJANGO_DEBUG: ${DJANGO_DEBUG:-0}

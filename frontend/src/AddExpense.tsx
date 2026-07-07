@@ -8,13 +8,18 @@ import { rupees } from './format.js';
 type SplitType = 'equal' | 'exact' | 'shares';
 
 export function AddExpense() {
-  const { id } = useParams();
-  const groupId = Number(id);
+  const { id, friendId } = useParams();
+  const personal = !id;
+  const groupId = personal ? null : Number(id);
   const { me, name } = useStore();
   const nav = useNavigate();
 
   const [group, setGroup] = useState<Group | null>(null);
-  const members = group?.members ?? [];
+  const personalMembers = useMemo(
+    () => (me && friendId ? [me.id, Number(friendId)] : []),
+    [me, friendId],
+  );
+  const members = personal ? personalMembers : (group?.members ?? []);
 
   const [nl, setNl] = useState('');
   const [nlBusy, setNlBusy] = useState(false);
@@ -30,12 +35,17 @@ export function AddExpense() {
   const amtRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    apiClient.group(groupId).then((g) => {
+    if (personal) {
+      setPayer((p) => p ?? me?.id ?? null);
+      setParticipants((cur) => (cur.length ? cur : personalMembers));
+      return;
+    }
+    apiClient.group(groupId!).then((g) => {
       setGroup(g);
       setPayer((p) => p ?? me?.id ?? g.members[0] ?? null);
       setParticipants((cur) => (cur.length ? cur : g.members));
     }).catch(() => {});
-  }, [groupId, me]);
+  }, [groupId, me, personal, personalMembers]);
 
   const amountPaise = useMemo(() => Math.round(parseFloat(amount || '0') * 100), [amount]);
   const perEqual = participants.length ? Math.round(amountPaise / participants.length) : 0;
@@ -96,7 +106,7 @@ export function AddExpense() {
     setBusy(true);
     try {
       await apiClient.createExpense({
-        group_id: groupId,
+        group_id: personal ? null : groupId,
         description: desc.trim() || nl.trim() || 'Expense',
         amount_paise: amountPaise,
         currency: 'INR',
@@ -108,7 +118,7 @@ export function AddExpense() {
         split: buildSplit(),
       });
       if (navigator.vibrate) navigator.vibrate(20);
-      nav(`/groups/${groupId}`, { replace: true });
+      nav(personal ? '/' : `/groups/${groupId}`, { replace: true });
     } catch (e) { setErr(e instanceof ApiError ? e.message : "That didn't save — check your connection and try again"); setBusy(false); }
   }
 
@@ -124,7 +134,9 @@ export function AddExpense() {
           <button onClick={() => nav(-1)} className="absolute left-4 w-10 h-10 flex items-center justify-center text-ink active:scale-95 transition-transform">
             <Icon name="close" />
           </button>
-          <h1 className="font-heading text-[22px] font-bold text-ink">Add Expense</h1>
+          <h1 className="font-heading text-[22px] font-bold text-ink">
+            {personal && friendId ? `With ${name(Number(friendId))}` : 'Add Expense'}
+          </h1>
         </div>
 
         <div className="flex-1 overflow-y-auto px-mobile pb-4">

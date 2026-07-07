@@ -14,6 +14,7 @@ import { GroupSummary } from './screens/GroupSummary.js';
 import { GroupExpenses } from './screens/GroupExpenses.js';
 import { AddMember } from './screens/AddMember.js';
 import { Friends } from './screens/Friends.js';
+import { FriendDetail } from './screens/FriendDetail.js';
 import { ActivityFeed } from './screens/ActivityFeed.js';
 import { Profile } from './screens/Profile.js';
 import { EditProfile } from './screens/EditProfile.js';
@@ -22,6 +23,7 @@ import { ExpenseDetail } from './screens/ExpenseDetail.js';
 import { EditExpense } from './screens/EditExpense.js';
 import { SettleUp } from './screens/SettleUp.js';
 import { AddExpense } from './AddExpense.js';
+import { AddTarget } from './screens/AddTarget.js';
 
 const TAB_PATHS = ['/', '/groups', '/activity', '/profile'];
 const PUBLIC_PATHS = ['/login', '/otp'];
@@ -76,7 +78,10 @@ export function App() {
         <Route path="/groups/:id/expenses" element={<GroupExpenses />} />
         <Route path="/groups/:id/add-member" element={<AddMember />} />
         <Route path="/groups/:id/add" element={<AddExpense />} />
+        <Route path="/add" element={<AddTarget />} />
+        <Route path="/add/personal/:friendId" element={<AddExpense />} />
         <Route path="/friends" element={<Friends />} />
+        <Route path="/friends/:id" element={<FriendDetail />} />
         <Route path="/activity" element={<ActivityFeed />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/profile/edit" element={<EditProfile />} />

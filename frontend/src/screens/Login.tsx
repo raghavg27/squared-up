@@ -85,7 +85,7 @@ export function Login() {
         <Logo />
         <h1 className="font-heading text-[34px] leading-tight font-bold text-ink mt-6">Squared Up</h1>
         <p className="font-body text-[17px] text-on-surface-variant text-center mt-3 max-w-[300px]">
-          Split bills with friends, settle up in one tap via UPI.
+          Split bills with friends, square up in one tap via UPI.
         </p>
 
         {step === 'intro' ? (

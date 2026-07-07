@@ -192,3 +192,106 @@ def test_add_and_remove_member(client):
     r = client.delete(f"/api/v1/groups/{gid}/members/{b}")
     assert r.status_code == 200
     assert b not in r.data["members"]
+
+
+def test_personal_expense_and_balances(client):
+    """Non-group (personal) expense: A pays 300 split with B, then A settles."""
+    a, b = _mk_user("Aarav"), _mk_user("Bhavna", vpa="bhavna@upi")
+    _as(client, a)
+    key = str(uuid.uuid4())
+    r = client.post(
+        "/api/v1/expenses",
+        {
+            "group_id": None,
+            "description": "Movie",
+            "amount_paise": 30000,
+            "created_by": a,
+            "payers": [{"user_id": a, "paid_paise": 30000}],
+            "split": {"type": "equal", "participants": [a, b]},
+        },
+        format="json",
+        HTTP_IDEMPOTENCY_KEY=key,
+    )
+    assert r.status_code == 201, r.data
+
+    # A's view: B owes A 150.
+    pa = client.get("/api/v1/balances/personal").data
+    assert pa["counterparties"] == [{"user_id": b, "net_paise": 15000}]
+
+    # B's view: B owes A 150 (negative).
+    _as(client, b)
+    pb = client.get("/api/v1/balances/personal").data
+    assert pb["counterparties"] == [{"user_id": a, "net_paise": -15000}]
+
+    # B settles up personally (manual, confirmed) → both squared.
+    skey = str(uuid.uuid4())
+    s = client.post(
+        "/api/v1/settlements",
+        {"group_id": None, "from_user": b, "to_user": a, "amount_paise": 15000, "method": "manual"},
+        format="json",
+        HTTP_IDEMPOTENCY_KEY=skey,
+    ).data
+    client.patch(f"/api/v1/settlements/{s['id']}/confirm")
+
+    assert client.get("/api/v1/balances/personal").data["counterparties"] == []
+    _as(client, a)
+    assert client.get("/api/v1/balances/personal").data["counterparties"] == []
+
+
+def test_personal_expenses_listed_and_editable(client):
+    """A creates a non-group split with B. Both can list it via /expenses/personal,
+    it shows in B's activity feed (B is a participant, not the actor), and it's
+    editable like a group expense."""
+    a, b = _mk_user("Aarav"), _mk_user("Bhavna")
+    _as(client, a)
+    r = client.post(
+        "/api/v1/expenses",
+        {
+            "group_id": None,
+            "description": "Dinner",
+            "amount_paise": 40000,
+            "created_by": a,
+            "payers": [{"user_id": a, "paid_paise": 40000}],
+            "split": {"type": "equal", "participants": [a, b]},
+        },
+        format="json",
+        HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
+    )
+    assert r.status_code == 201, r.data
+    eid = r.data["id"]
+
+    # A lists their personal expenses.
+    la = client.get("/api/v1/expenses/personal").data
+    assert [e["id"] for e in la] == [eid]
+    assert la[0]["group_id"] is None
+
+    # B — a participant but NOT the creator — sees it too, both in the list and
+    # in the activity feed (the pre-fix bug: non-actor participants were missing).
+    _as(client, b)
+    lb = client.get("/api/v1/expenses/personal").data
+    assert [e["id"] for e in lb] == [eid]
+
+    feed = client.get("/api/v1/activity").data
+    assert any(ev["type"] == "expense.created" and ev["target"] == f"expense:{eid}" for ev in feed)
+
+    # ?with= scopes to a single counterparty.
+    scoped = client.get(f"/api/v1/expenses/personal?with={a}").data
+    assert [e["id"] for e in scoped] == [eid]
+
+    # Editable like a group expense: the creator edits amount, shares recompute.
+    _as(client, a)
+    up = client.patch(
+        f"/api/v1/expenses/{eid}",
+        {
+            "group_id": None,
+            "description": "Dinner + dessert",
+            "amount_paise": 60000,
+            "created_by": a,
+            "payers": [{"user_id": a, "paid_paise": 60000}],
+            "split": {"type": "equal", "participants": [a, b]},
+        },
+        format="json",
+    )
+    assert up.status_code == 200, up.data
+    assert up.data["amount_paise"] == 60000
+    assert client.get("/api/v1/balances/personal").data["counterparties"] == [{"user_id": b, "net_paise": 30000}]

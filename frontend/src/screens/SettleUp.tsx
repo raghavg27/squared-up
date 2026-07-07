@@ -10,7 +10,8 @@ type Phase = 'idle' | 'paying' | 'awaiting' | 'done';
 
 export function SettleUp() {
   const { groupId, toUserId } = useParams();
-  const gid = Number(groupId);
+  const personal = groupId === 'personal';
+  const gid = personal ? null : Number(groupId);
   const toId = Number(toUserId);
   const { me, userMap, name } = useStore();
   const nav = useNavigate();
@@ -20,19 +21,28 @@ export function SettleUp() {
   const [pending, setPending] = useState<SettlementResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const toUser = userMap.get(toId);
+  const backTo = personal ? '/' : `/groups/${gid}`;
 
   useEffect(() => {
-    apiClient.group(gid).then(setGroup).catch(() => {});
-    apiClient.balances(gid).then((b) => {
+    if (personal) {
+      apiClient.personalBalances().then((b) => {
+        const c = b.counterparties.find((x) => x.user_id === toId);
+        // Negative net = I owe them; that's what I can settle here.
+        setAmount(c && c.net_paise < 0 ? -c.net_paise : 0);
+      }).catch(() => setAmount(0));
+      return;
+    }
+    apiClient.group(gid!).then(setGroup).catch(() => {});
+    apiClient.balances(gid!).then((b) => {
       const s = b.simplified_settlements.find((x) => x.from_user === me?.id && x.to_user === toId);
       setAmount(s?.amount_paise ?? 0);
     }).catch(() => setAmount(0));
-  }, [gid, toId, me]);
+  }, [gid, toId, me, personal]);
 
   const finish = () => {
     setPhase('done');
     if (navigator.vibrate) navigator.vibrate(30);
-    setTimeout(() => nav(`/groups/${gid}`, { replace: true }), 1400);
+    setTimeout(() => nav(backTo, { replace: true }), 1400);
   };
 
   // UPI: create the settlement, hand off to the UPI app, then ask the user to
@@ -43,7 +53,8 @@ export function SettleUp() {
     try {
       const r = await apiClient.createSettlement({
         group_id: gid, from_user: me.id, to_user: toId,
-        amount_paise: amount, method: 'upi', note: `Settling up: ${group?.name ?? 'Squared Up'}`,
+        amount_paise: amount, method: 'upi',
+        note: `Squaring up: ${personal ? name(toId) : (group?.name ?? 'Squared Up')}`,
       });
       setPending(r);
       if (r.upi_intent) {
@@ -68,6 +79,7 @@ export function SettleUp() {
         group_id: gid, from_user: me.id, to_user: toId,
         amount_paise: amount, method: 'manual', note: 'Marked as paid',
       });
+
       await apiClient.confirmSettlement(r.id);
       finish();
     } catch (e) {
@@ -97,11 +109,11 @@ export function SettleUp() {
         <div className="rounded-full ring-4 ring-surface-container-lowest">
           <Avatar name={toUser?.name ?? name(toId)} size={104} />
         </div>
-        <h1 className="font-heading text-[32px] font-bold text-ink mt-5">Settle with {name(toId)}</h1>
+        <h1 className="font-heading text-[32px] font-bold text-ink mt-5">Square up with {name(toId)}</h1>
         <p className="font-body text-[17px] text-on-surface-variant mt-2">
           {nothingToSettle
-            ? `You're all square with ${name(toId)} in ${group?.name ?? 'this group'} 🎉`
-            : <>You owe {name(toId)} <span className="font-currency font-medium text-ink tnum">{rupees(amount ?? 0)}</span> for {group?.name ?? '…'}</>}
+            ? `You're all square with ${name(toId)}${personal ? '' : ` in ${group?.name ?? 'this group'}`} 🎉`
+            : <>You owe {name(toId)} <span className="font-currency font-medium text-ink tnum">{rupees(amount ?? 0)}</span>{personal ? '' : <> for {group?.name ?? '…'}</>}</>}
         </p>
       </div>
 
@@ -116,7 +128,7 @@ export function SettleUp() {
           <div className="w-16 h-16 rounded-full bg-teal/15 flex items-center justify-center pop-in">
             <Icon name="check" fill style={{ fontSize: 34 }} />
           </div>
-          <p className="font-heading text-[17px] font-semibold pop-in">Settled up!</p>
+          <p className="font-heading text-[17px] font-semibold pop-in">Squared up!</p>
         </div>
       )}
 
@@ -124,14 +136,14 @@ export function SettleUp() {
         <div className="mt-8 flex flex-col items-center gap-4 page-enter">
           <p className="font-body text-[17px] text-ink text-center">Did the payment go through?</p>
           <button onClick={confirmPaid} className="w-full h-[52px] bg-primary text-on-primary rounded-button font-heading text-[17px] font-semibold active:scale-[0.98] transition-transform">
-            Yes, mark as settled
+            Yes, mark as squared up
           </button>
           {pending?.upi_intent && (
             <button onClick={() => { window.location.href = preferredIntent(pending.upi_intent!); }} className="font-body text-[15px] text-primary font-medium">
               Reopen UPI app
             </button>
           )}
-          <button onClick={() => nav(`/groups/${gid}`, { replace: true })} className="font-body text-[15px] text-neutral-600">
+          <button onClick={() => nav(backTo, { replace: true })} className="font-body text-[15px] text-neutral-600">
             Not yet — I'll confirm later
           </button>
         </div>
