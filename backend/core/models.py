@@ -1,8 +1,9 @@
 """ORM models — a faithful port of the canonical PostgreSQL schema
 (Core Domain Spec §2). Money is integer paise in BIGINT; no floating point.
 
-The app has no login: there is no password on ``User`` and no Django-auth flow.
-An "actor" is passed explicitly by the client where needed.
+Auth is phone-OTP + JWT (see core.auth / core.auth_service), not Django auth:
+``User`` has no password, and the acting user is always derived from the
+bearer token — never from the request body.
 """
 
 from django.db import models
