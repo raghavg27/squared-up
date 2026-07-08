@@ -81,7 +81,12 @@ export function groupTypeStyle(type: string): { icon: string; tint: string; fg: 
 // ── Avatar: initial-based (no external images to keep offline-safe) ────
 const AV_COLORS = ['bg-secondary-container text-secondary', 'bg-primary/10 text-primary', 'bg-teal/15 text-tertiary', 'bg-sky/15 text-sky', 'bg-amber/15 text-amber', 'bg-plum/15 text-plum'];
 export function Avatar({ name, size = 40, me }: { name: string; size?: number; me?: boolean }) {
-  const initial = (name || '?').trim().charAt(0).toUpperCase();
+  // One word → single initial ("Raghav" → "R"); multi-word → first letter of
+  // first two words ("Raghav Gupta" → "RG").
+  const words = (name || '?').trim().split(/\s+/).filter(Boolean);
+  const initial = (words.length > 1
+    ? (words[0]?.[0] ?? '') + (words[1]?.[0] ?? '')
+    : (words[0]?.[0] ?? '?')).toUpperCase();
   const color = me ? 'bg-primary text-on-primary' : AV_COLORS[hash(name) % AV_COLORS.length];
   return (
     <div
