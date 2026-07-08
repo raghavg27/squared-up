@@ -44,6 +44,7 @@ export function OtpVerify() {
 
   function onKey(i: number, e: React.KeyboardEvent) {
     if (e.key === 'Backspace' && !digits[i] && i > 0) inputs.current[i - 1]?.focus();
+    if (e.key === 'Enter') verify();
   }
 
   function onPaste(e: React.ClipboardEvent) {
