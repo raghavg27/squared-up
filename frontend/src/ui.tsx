@@ -104,23 +104,34 @@ function hash(s: string): number {
 }
 
 // ── Invite card: create a placeholder user from a search query ─────────
-// A phone-number query needs a real name (otherwise the person would surface
-// as "Invited" everywhere, and keep that name when they later sign in).
+// A phone/email query needs a real name (otherwise the person would surface as
+// their raw number/address everywhere, and keep it as a name when they later
+// sign in). Email is a login identity too, so it goes in `email`, never `name`.
+// `onInviteLink`, when provided, adds a second action that also opens the share
+// sheet with a join deep-link (see invite.ts).
 const PHONE_RE = /^[+0-9\s-]{8,}$/;
-export function InviteCard({ query, busy, onInvite }: { query: string; busy?: boolean; onInvite: (u: User) => void }) {
-  const isPhone = PHONE_RE.test(query);
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+export function InviteCard({ query, busy, onInvite, onInviteLink }: {
+  query: string; busy?: boolean;
+  onInvite: (u: User) => void;
+  onInviteLink?: (u: User) => void | Promise<void>;
+}) {
+  const isEmail = EMAIL_RE.test(query.trim());
+  const isPhone = !isEmail && PHONE_RE.test(query);
+  const needsName = isPhone || isEmail;
   const [inviteName, setInviteName] = useState('');
   const [creating, setCreating] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  async function create() {
+  async function create(then: (u: User) => void | Promise<void>) {
     if (creating || busy) return;
-    const name = (isPhone ? inviteName : query).trim();
+    const name = (needsName ? inviteName : query).trim();
     if (!name) { setErr('Add their name so friends recognise them'); return; }
     setCreating(true); setErr(null);
     try {
-      const u = await apiClient.createUser(isPhone ? { name, phone: query.trim() } : { name });
-      onInvite(u);
+      const q = query.trim();
+      const u = await apiClient.createUser(isPhone ? { name, phone: q } : isEmail ? { name, email: q } : { name });
+      await then(u);
       setInviteName('');
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : 'Could not invite — try again');
@@ -130,13 +141,13 @@ export function InviteCard({ query, busy, onInvite }: { query: string; busy?: bo
   return (
     <div className="border border-dashed border-neutral-300 rounded-card p-4 flex flex-col items-center gap-2 text-primary">
       <Icon name="person_add" style={{ fontSize: 24 }} />
-      {isPhone ? (
+      {needsName ? (
         <>
           <p className="font-body text-[15px] font-medium text-ink text-center">Invite <span className="tnum">{query.trim()}</span></p>
           <input
             value={inviteName}
             onChange={(e) => setInviteName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && create()}
+            onKeyDown={(e) => e.key === 'Enter' && create(onInvite)}
             className="input-warm text-center"
             placeholder="Their name"
             autoFocus
@@ -146,15 +157,28 @@ export function InviteCard({ query, busy, onInvite }: { query: string; busy?: bo
         <p className="font-body text-[15px] font-medium text-center">Add "{query.trim()}" as a new person</p>
       )}
       {err && <p className="text-danger font-caption text-caption text-center">{err}</p>}
-      <button
-        onClick={create}
-        disabled={creating || busy}
-        className="px-6 h-10 rounded-button bg-primary text-on-primary font-body text-[15px] font-semibold active:scale-95 transition-transform disabled:opacity-60"
-      >
-        {creating ? 'Adding…' : 'Add'}
-      </button>
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <button
+          onClick={() => create(onInvite)}
+          disabled={creating || busy}
+          className="px-6 h-10 rounded-button bg-primary text-on-primary font-body text-[15px] font-semibold active:scale-95 transition-transform disabled:opacity-60"
+        >
+          {creating ? 'Adding…' : 'Add'}
+        </button>
+        {onInviteLink && (
+          <button
+            onClick={() => create(onInviteLink)}
+            disabled={creating || busy}
+            className="px-5 h-10 rounded-button border border-primary text-primary font-body text-[15px] font-semibold flex items-center gap-1.5 active:scale-95 transition-transform disabled:opacity-60"
+          >
+            <Icon name="share" style={{ fontSize: 18 }} />Invite via link
+          </button>
+        )}
+      </div>
       <p className="font-caption text-caption text-neutral-600 text-center">
-        {isPhone ? "They'll see this group when they sign in with that number." : 'You can square up on their behalf until they join.'}
+        {needsName
+          ? "They'll join this person when they sign in with that " + (isPhone ? 'number' : 'email') + ', keeping your shared history.'
+          : 'You can square up on their behalf until they join.'}
       </p>
     </div>
   );

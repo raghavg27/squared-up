@@ -8,11 +8,15 @@ export function GroupSettings() {
   const { id } = useParams();
   const gid = Number(id);
   const nav = useNavigate();
-  const { me, name } = useStore();
+  const { me, name, reloadGroups } = useStore();
   const [group, setGroup] = useState<Group | null>(null);
   const [balances, setBalances] = useState<Balances | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [archiveBusy, setArchiveBusy] = useState(false);
+
+  const archived = !!group?.archived_at;
+  const isOwner = !!me && group?.created_by === me.id;
 
   const load = useCallback(() => {
     apiClient.group(gid).then(setGroup).catch(() => {});
@@ -28,6 +32,22 @@ export function GroupSettings() {
     try { const g = await apiClient.removeMember(gid, uid); setGroup(g); load(); }
     catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not remove'); }
     finally { setBusyId(null); }
+  }
+
+  async function archive() {
+    if (archiveBusy) return;
+    if (!window.confirm('Archive this group? It moves to Archived — you can restore it anytime for reference.')) return;
+    setArchiveBusy(true); setErr(null);
+    try { await apiClient.archiveGroup(gid); reloadGroups(); nav('/groups'); }
+    catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not archive'); setArchiveBusy(false); }
+  }
+
+  async function restore() {
+    if (archiveBusy) return;
+    setArchiveBusy(true); setErr(null);
+    try { const g = await apiClient.restoreGroup(gid); setGroup(g); reloadGroups(); }
+    catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not restore'); }
+    finally { setArchiveBusy(false); }
   }
 
   const st = groupTypeStyle(group?.type ?? 'other');
@@ -50,6 +70,11 @@ export function GroupSettings() {
           <h2 className="font-heading text-[22px] font-bold text-ink">{group?.name}</h2>
           <span className="font-caption text-caption text-neutral-600 capitalize">{group?.type} • {group?.members.length ?? 0} members
             {group?.rotation_enabled ? ' • Turn to Pay on' : ''}</span>
+          {archived && (
+            <span className="mt-1 inline-flex items-center gap-1 px-3 h-7 rounded-full bg-surface-container-high text-neutral-600 font-caption text-caption">
+              <Icon name="inventory_2" style={{ fontSize: 16 }} /> Archived — read only
+            </span>
+          )}
         </div>
 
         {err && <p className="text-primary font-caption text-caption text-center">{err}</p>}
@@ -57,14 +82,18 @@ export function GroupSettings() {
         <section className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <h3 className="font-heading text-[17px] font-bold text-ink">Members</h3>
-            <button onClick={() => nav(`/groups/${gid}/add-member`)} className="flex items-center gap-1 text-primary font-body text-[15px] font-medium">
-              <Icon name="person_add" style={{ fontSize: 20 }} /> Add
-            </button>
+            {!archived && (
+              <button onClick={() => nav(`/groups/${gid}/add-member`)} className="flex items-center gap-1 text-primary font-body text-[15px] font-medium">
+                <Icon name="person_add" style={{ fontSize: 20 }} /> Add
+              </button>
+            )}
           </div>
           <div className="bg-surface-container-lowest rounded-card border border-neutral-300 card-shadow divide-y divide-neutral-100">
             {group?.members.map((uid) => {
               const net = netOf(uid);
               const isMe = uid === me?.id;
+              // Backend blocks removing the owner (only they can archive/restore).
+              const isGroupOwner = uid === group?.created_by;
               return (
                 <div key={uid} className="p-3 flex items-center gap-3">
                   <Avatar name={name(uid)} size={40} me={isMe} />
@@ -74,11 +103,11 @@ export function GroupSettings() {
                       {net === 0 ? 'Squared up' : net > 0 ? 'Is owed money' : 'Owes money'}
                     </span>
                   </div>
-                  {!isMe && (
+                  {!isMe && !archived && (
                     <button
                       onClick={() => remove(uid)}
-                      disabled={busyId === uid || net !== 0}
-                      title={net !== 0 ? 'Square up before removing' : 'Remove'}
+                      disabled={busyId === uid || net !== 0 || isGroupOwner}
+                      title={isGroupOwner ? "The owner can't be removed" : net !== 0 ? 'Square up before removing' : 'Remove'}
                       className="w-9 h-9 rounded-full flex items-center justify-center text-primary disabled:text-neutral-300 active:scale-95 transition-transform"
                     >
                       <Icon name="person_remove" style={{ fontSize: 20 }} />
@@ -88,8 +117,35 @@ export function GroupSettings() {
               );
             })}
           </div>
-          <p className="font-caption text-caption text-neutral-600">A member can only be removed once their balance is squared up.</p>
+          {!archived && <p className="font-caption text-caption text-neutral-600">A member can only be removed once their balance is squared up.</p>}
         </section>
+
+        {/* Archive / restore — owner only. Archiving is a reversible soft delete. */}
+        {isOwner && (
+          <section className="flex flex-col gap-2 mt-2">
+            <h3 className="font-heading text-[17px] font-bold text-ink">Danger zone</h3>
+            {archived ? (
+              <button
+                onClick={restore}
+                disabled={archiveBusy}
+                className="w-full h-12 rounded-button bg-surface-container-lowest border border-neutral-300 text-primary font-heading text-[15px] font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50"
+              >
+                <Icon name="unarchive" style={{ fontSize: 20 }} /> Restore group
+              </button>
+            ) : (
+              <button
+                onClick={archive}
+                disabled={archiveBusy}
+                className="w-full h-12 rounded-button bg-primary/10 text-primary font-heading text-[15px] font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50"
+              >
+                <Icon name="inventory_2" style={{ fontSize: 20 }} /> Archive group
+              </button>
+            )}
+            <p className="font-caption text-caption text-neutral-600">
+              {archived ? 'Restoring makes the group active and editable again.' : 'Archiving hides the group from your list but keeps all expenses for reference. You can restore it anytime.'}
+            </p>
+          </section>
+        )}
       </main>
     </div>
   );

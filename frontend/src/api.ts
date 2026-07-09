@@ -5,11 +5,16 @@ const BASE = '/api/v1';
 
 export interface User {
   id: number; name: string; phone: string | null; email?: string | null;
+  email_verified?: boolean;
+  // True for an invited person who hasn't signed in yet — drives the
+  // "invite pending" UI. Cleared server-side when they authenticate.
+  is_placeholder?: boolean;
   upi_vpa: string | null; avatar_url?: string | null; locale: string;
 }
 export interface Group {
   id: number; name: string; type: string; members: number[];
   rotation_enabled: boolean; rotation_mode: 'balanced' | 'round_robin';
+  created_by?: number; archived_at?: string | null;
 }
 export interface Share { user_id: number; paid_paise: number; owed_paise: number; net_paise: number }
 export interface Expense { id: number; description: string; amount_paise: number; is_rotation: boolean; shares: Share[]; created_at: string; group_id: number | null; expense_date?: string; created_by?: number }
@@ -134,16 +139,20 @@ export const apiClient = {
 
   // Directory / social
   users: () => req<User[]>('/users'),
+  user: (id: number) => req<User>(`/users/${id}`),
   searchUsers: (query: string) => req<User[]>(`/users?query=${encodeURIComponent(query)}`),
-  createUser: (input: { name: string; phone?: string | null; upi_vpa?: string | null; locale?: string }) =>
+  createUser: (input: { name: string; phone?: string | null; email?: string | null; upi_vpa?: string | null; locale?: string }) =>
     req<User>('/users', { method: 'POST', body: JSON.stringify({ locale: 'en', ...input }) }),
   friends: () => req<User[]>('/friends'),
   addFriend: (user_id: number) => req<{ ok: boolean; friends: User[] }>('/friends', { method: 'POST', body: JSON.stringify({ user_id }) }),
+  removeFriend: (user_id: number) => req<{ ok: boolean; friends: User[] }>(`/friends/${user_id}`, { method: 'DELETE' }),
 
   // Groups
-  groups: () => req<Group[]>('/groups'),
+  groups: (archived = false) => req<Group[]>(`/groups${archived ? '?archived=1' : ''}`),
   group: (id: number) => req<Group>(`/groups/${id}`),
   createGroup: (input: unknown) => req<Group>('/groups', { method: 'POST', body: JSON.stringify(input) }),
+  archiveGroup: (id: number) => req<Group>(`/groups/${id}`, { method: 'DELETE' }),
+  restoreGroup: (id: number) => req<Group>(`/groups/${id}/restore`, { method: 'POST' }),
   addMember: (gid: number, user_id: number) => req<Group>(`/groups/${gid}/members`, { method: 'POST', body: JSON.stringify({ user_id }) }),
   removeMember: (gid: number, uid: number) => req<Group>(`/groups/${gid}/members/${uid}`, { method: 'DELETE' }),
 

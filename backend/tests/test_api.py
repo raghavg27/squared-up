@@ -295,3 +295,61 @@ def test_personal_expenses_listed_and_editable(client):
     assert up.status_code == 200, up.data
     assert up.data["amount_paise"] == 60000
     assert client.get("/api/v1/balances/personal").data["counterparties"] == [{"user_id": b, "net_paise": 30000}]
+
+
+def test_archive_and_restore_group(client):
+    """Owner archives a group (soft delete): it drops off the active list, stays
+    viewable read-only, blocks new expenses, and restores back to active."""
+    a = _mk_user("Aarav")
+    b = _mk_user("Bhavna")
+    _as(client, a)  # Aarav creates → he is the owner
+    gid = client.post("/api/v1/groups", {"name": "Goa Trip", "type": "trip", "member_ids": [b]}, format="json").data["id"]
+
+    # Archive (DELETE) → group carries archived_at and leaves the active list.
+    r = client.delete(f"/api/v1/groups/{gid}")
+    assert r.status_code == 200, r.data
+    assert r.data["archived_at"] is not None
+    assert client.get("/api/v1/groups").data == []
+    assert [g["id"] for g in client.get("/api/v1/groups?archived=1").data] == [gid]
+
+    # Still viewable read-only, but no new expenses may be added.
+    assert client.get(f"/api/v1/groups/{gid}").data["id"] == gid
+    add = client.post(
+        "/api/v1/expenses",
+        {
+            "group_id": gid,
+            "description": "Late add",
+            "amount_paise": 10000,
+            "created_by": a,
+            "payers": [{"user_id": a, "paid_paise": 10000}],
+            "split": {"type": "equal", "participants": [a, b]},
+        },
+        format="json",
+        HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
+    )
+    assert add.status_code == 404, add.data
+
+    # Restore → active again.
+    r = client.post(f"/api/v1/groups/{gid}/restore")
+    assert r.status_code == 200, r.data
+    assert r.data["archived_at"] is None
+    assert [g["id"] for g in client.get("/api/v1/groups").data] == [gid]
+
+
+def test_archive_group_owner_only(client):
+    """A non-owner member cannot archive; an outsider gets 404 (id probing)."""
+    a = _mk_user("Aarav")
+    b = _mk_user("Bhavna")
+    c = _mk_user("Chetan")
+    _as(client, a)
+    gid = client.post("/api/v1/groups", {"name": "Flat", "type": "home", "member_ids": [b]}, format="json").data["id"]
+
+    _as(client, b)  # member, not owner → 403
+    assert client.delete(f"/api/v1/groups/{gid}").status_code == 403
+
+    _as(client, c)  # outsider → 404
+    assert client.delete(f"/api/v1/groups/{gid}").status_code == 404
+
+    # Still active (nobody with rights archived it).
+    _as(client, a)
+    assert [g["id"] for g in client.get("/api/v1/groups").data] == [gid]

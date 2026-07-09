@@ -12,6 +12,14 @@ from django.db import models
 class User(models.Model):
     phone = models.TextField(unique=True, null=True, blank=True)
     email = models.EmailField(unique=True, null=True, blank=True)
+    # True when the email was proven via Google sign-in; such emails are locked
+    # from user edits (Google is the source of truth). Manually-entered emails
+    # stay False and remain editable.
+    email_verified = models.BooleanField(default=False)
+    # True for an invited-but-not-yet-joined person: a placeholder created by a
+    # friend (create_user) so balances can be tracked on their behalf. Cleared
+    # the moment they authenticate (OTP verify / Google login) and claim the row.
+    is_placeholder = models.BooleanField(default=False)
     name = models.TextField()
     avatar_url = models.TextField(null=True, blank=True)
     upi_vpa = models.TextField(null=True, blank=True)

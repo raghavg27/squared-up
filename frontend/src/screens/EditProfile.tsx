@@ -8,17 +8,26 @@ export function EditProfile() {
   const nav = useNavigate();
   const { me, refreshMe } = useStore();
   const [name, setName] = useState(me?.name ?? '');
+  const [email, setEmail] = useState(me?.email ?? '');
   const [vpa, setVpa] = useState(me?.upi_vpa ?? '');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Email proven via Google is the source of truth — read-only, like phone.
+  const emailLocked = !!me?.email_verified;
 
   async function save() {
     if (busy) return;
     if (!name.trim()) { setErr('Name is required'); return; }
+    if (email.trim() && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) { setErr('That email doesn’t look right'); return; }
     if (vpa && !/^[\w.\-]+@[\w.\-]+$/.test(vpa.trim())) { setErr('That UPI ID looks off (e.g. name@okhdfc)'); return; }
     setBusy(true); setErr(null);
     try {
-      await apiClient.updateMe({ name: name.trim(), upi_vpa: vpa.trim() || null, locale: 'en' });
+      await apiClient.updateMe({
+        name: name.trim(),
+        upi_vpa: vpa.trim() || null,
+        locale: 'en',
+        ...(emailLocked ? {} : { email: email.trim() || null }),
+      });
       await refreshMe();
       nav('/profile', { replace: true });
     } catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not save'); setBusy(false); }
@@ -42,6 +51,19 @@ export function EditProfile() {
         <div>
           <label className="font-caption text-caption text-on-surface-variant block mb-2">Name</label>
           <input value={name} onChange={(e) => setName(e.target.value)} className="input-warm" placeholder="Your name" />
+        </div>
+        <div>
+          <label className="font-caption text-caption text-on-surface-variant block mb-2">Email</label>
+          <input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={emailLocked}
+            type="email"
+            autoComplete="email"
+            className={`input-warm${emailLocked ? ' opacity-70' : ''}`}
+            placeholder="you@gmail.com"
+          />
+          {emailLocked && <p className="font-caption text-caption text-neutral-600 mt-1">Verified with Google — can't be changed.</p>}
         </div>
         <div>
           <label className="font-caption text-caption text-on-surface-variant block mb-2">UPI ID</label>

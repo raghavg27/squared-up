@@ -29,6 +29,7 @@ export function Profile() {
         </div>
         <h1 className="font-heading text-[22px] font-bold text-ink mt-4">{me?.name || 'Set up profile'}</h1>
         <p className="font-body text-[17px] text-on-surface-variant mt-1 tnum">{me?.phone ?? ''}</p>
+        {me?.email && <p className="font-body text-[15px] text-on-surface-variant mt-0.5 truncate max-w-[80vw]">{me.email}</p>}
       </button>
       {me?.upi_vpa && (
         <button onClick={copyVpa} className="mt-3 bg-surface-container flex items-center gap-2 px-4 py-2 rounded-full active:scale-95 transition-transform">
@@ -40,7 +41,7 @@ export function Profile() {
       <div className="w-full flex flex-col gap-4 mt-8 stagger">
         <SettingRow icon="group" title="Friends" sub="People you split with" onClick={() => nav('/friends')} />
         <SettingRow icon="receipt_long" title="Activity" sub="Your recent transactions" onClick={() => nav('/activity')} />
-        <SettingRow icon="person" title="Edit profile" sub="Name, UPI ID" onClick={() => nav('/profile/edit')} />
+        <SettingRow icon="person" title="Edit profile" sub="Name, email, UPI ID" onClick={() => nav('/profile/edit')} />
         <SettingRow icon="account_balance_wallet" title="Primary UPI App" sub={getUpiApp().label} onClick={() => nav('/profile/upi-app')} />
       </div>
 

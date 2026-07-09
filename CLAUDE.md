@@ -63,7 +63,7 @@ fix the doc.
   body. Every group-scoped endpoint requires active membership; outsiders get
   **404, not 403** (no id probing). Matrix enforced in `backend/tests/test_authz.py`.
 - **Idempotency**: mutating endpoints require `Idempotency-Key` header; replays
-  return the stored response (I9).
+  return the stored response (I9). Keys are scoped per endpoint + actor.
 - **Errors**: every error is the §11 envelope `{"error": {"code", "message"}}` —
   see `backend/core/exceptions.py`.
 - **UPI**: server only builds the `upi://pay?...` intent string; the app never

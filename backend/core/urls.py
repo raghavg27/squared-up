@@ -16,10 +16,12 @@ urlpatterns = [
     path("users", views.users),  # GET list / ?query= search
     path("users/<int:pk>", views.user_detail),
     path("friends", views.friends),  # GET list / POST add
+    path("friends/<int:uid>", views.friend_detail),  # DELETE unfriend
 
     # ── Groups ──
-    path("groups", views.groups),  # GET my groups / POST create
-    path("groups/<int:pk>", views.groups_detail),
+    path("groups", views.groups),  # GET my groups (?archived=1 for archived) / POST create
+    path("groups/<int:pk>", views.groups_detail),  # GET / DELETE (archive, owner-only)
+    path("groups/<int:pk>/restore", views.groups_restore),  # POST un-archive (owner-only)
     path("groups/<int:pk>/members", views.group_members),  # POST add
     path("groups/<int:pk>/members/<int:uid>", views.group_member_detail),  # DELETE
     path("groups/<int:pk>/expenses", views.group_expenses),

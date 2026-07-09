@@ -56,7 +56,7 @@ def users(request):
         return Response(services.create_user(validate_create_user(request.data)), status=201)
     query = request.query_params.get("query")
     if query is not None:
-        return Response(services.search_users(query, exclude_id=_actor(request)))
+        return Response(services.search_users(query, for_user=_actor(request)))
     return Response(services.list_users(_actor(request)))
 
 
@@ -83,19 +83,32 @@ def friends(request):
     return Response(services.list_friends(_actor(request)))
 
 
+@api_view(["DELETE"])
+def friend_detail(request, uid: int):
+    return Response(services.remove_friend(_actor(request), uid))
+
+
 # ── Groups ──
 @api_view(["GET", "POST"])
 def groups(request):
     if request.method == "POST":
         g = services.create_group(validate_create_group(_with_actor(request, "created_by")))
         return Response(services.get_group(g["id"]), status=201)
-    return Response(services.list_groups(_actor(request)))
+    archived = request.query_params.get("archived") in ("1", "true")
+    return Response(services.list_groups(_actor(request), archived=archived))
 
 
-@api_view(["GET"])
+@api_view(["GET", "DELETE"])
 def groups_detail(request, pk: int):
-    services.require_group_member(pk, _actor(request))
-    return Response(services.get_group(pk))
+    if request.method == "DELETE":  # archive (soft delete) — owner only
+        return Response(services.archive_group(pk, _actor(request)))
+    services.require_group_member(pk, _actor(request), allow_archived=True)
+    return Response(services.get_group(pk, include_archived=True))
+
+
+@api_view(["POST"])
+def groups_restore(request, pk: int):
+    return Response(services.restore_group(pk, _actor(request)))
 
 
 @api_view(["POST"])
@@ -121,7 +134,7 @@ def expenses_create(request):
 
 @api_view(["GET"])
 def group_expenses(request, pk: int):
-    services.require_group_member(pk, _actor(request))
+    services.require_group_member(pk, _actor(request), allow_archived=True)
     return Response(services.list_group_expenses(pk))
 
 
@@ -163,7 +176,7 @@ def expense_comments(request, pk: int):
 # ── Balances & Turn ──
 @api_view(["GET"])
 def group_balances(request, pk: int):
-    services.require_group_member(pk, _actor(request))
+    services.require_group_member(pk, _actor(request), allow_archived=True)
     return Response(services.group_balances(pk))
 
 
@@ -174,7 +187,7 @@ def personal_balances(request):
 
 @api_view(["GET"])
 def group_turn(request, pk: int):
-    services.require_group_member(pk, _actor(request))
+    services.require_group_member(pk, _actor(request), allow_archived=True)
     return Response(services.whose_turn(pk))
 
 

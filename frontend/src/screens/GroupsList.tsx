@@ -1,14 +1,20 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { apiClient, type Balances } from '../api.js';
+import { apiClient, type Balances, type Group } from '../api.js';
 import { useStore } from '../store.js';
 import { rupees } from '../format.js';
 import { Icon, groupTypeStyle } from '../ui.js';
 
 export function GroupsList() {
-  const { me, groups } = useStore();
+  const { me, groups, reloadGroups } = useStore();
   const nav = useNavigate();
   const [balByGroup, setBalByGroup] = useState<Record<number, Balances>>({});
+  const [archived, setArchived] = useState<Group[]>([]);
+  const [showArchived, setShowArchived] = useState(false);
+
+  // Refetch active groups on mount so the list never shows a stale entry that
+  // was archived on another screen (the archived section is always fresh).
+  useEffect(() => { reloadGroups(); }, [reloadGroups]);
 
   useEffect(() => {
     if (!me) return;
@@ -17,6 +23,7 @@ export function GroupsList() {
       rows.forEach((b, i) => { const g = groups[i]; if (b && g) map[g.id] = b; });
       setBalByGroup(map);
     });
+    apiClient.groups(true).then(setArchived).catch(() => setArchived([]));
   }, [me, groups]);
 
   const myNet = (gid: number) => balByGroup[gid]?.members.find((m) => m.user_id === me?.id)?.net_paise ?? 0;
@@ -64,6 +71,32 @@ export function GroupsList() {
             </button>
           )}
         </div>
+
+        {archived.length > 0 && (
+          <div className="flex flex-col gap-3 mt-2">
+            <button onClick={() => setShowArchived((v) => !v)} className="flex items-center justify-between text-neutral-600">
+              <span className="flex items-center gap-2 font-heading text-[17px] font-bold">
+                <Icon name="inventory_2" style={{ fontSize: 20 }} /> Archived ({archived.length})
+              </span>
+              <Icon name={showArchived ? 'expand_less' : 'expand_more'} style={{ fontSize: 22 }} />
+            </button>
+            {showArchived && archived.map((g) => {
+              const st = groupTypeStyle(g.type);
+              return (
+                <Link key={g.id} to={`/groups/${g.id}`} className="bg-surface-container-lowest rounded-card p-4 border border-neutral-300 flex items-center gap-3 opacity-70 active:scale-[0.99] transition-transform">
+                  <div className={`w-12 h-12 rounded-button flex items-center justify-center shrink-0 ${st.tint} ${st.fg}`}>
+                    <Icon name={st.icon} fill style={{ fontSize: 24 }} />
+                  </div>
+                  <div className="flex flex-col flex-1 min-w-0">
+                    <span className="font-heading text-[17px] font-semibold text-ink truncate">{g.name}</span>
+                    <span className="font-caption text-caption text-neutral-600">{g.members.length} members • Archived</span>
+                  </div>
+                  <Icon name="chevron_right" style={{ fontSize: 22 }} />
+                </Link>
+              );
+            })}
+          </div>
+        )}
       </main>
     </div>
   );

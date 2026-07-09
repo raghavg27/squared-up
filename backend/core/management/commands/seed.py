@@ -22,14 +22,15 @@ class Command(BaseCommand):
             self.stdout.write("Seed skipped: users already exist.")
             return
 
+        # Demo users are treated as fully joined (not invite placeholders).
         aarav = services.create_user(
-            {"name": "Aarav", "phone": "+919000000001", "email": None, "upi_vpa": "aarav@okhdfc", "locale": "en"}
+            {"name": "Aarav", "phone": "+919000000001", "email": None, "upi_vpa": "aarav@okhdfc", "locale": "en", "is_placeholder": False}
         )
         bhavna = services.create_user(
-            {"name": "Bhavna", "phone": "+919000000002", "email": None, "upi_vpa": "bhavna@okaxis", "locale": "en"}
+            {"name": "Bhavna", "phone": "+919000000002", "email": None, "upi_vpa": "bhavna@okaxis", "locale": "en", "is_placeholder": False}
         )
         chetan = services.create_user(
-            {"name": "Chetan", "phone": "+919000000003", "email": None, "upi_vpa": None, "locale": "hi"}
+            {"name": "Chetan", "phone": "+919000000003", "email": None, "upi_vpa": None, "locale": "hi", "is_placeholder": False}
         )
 
         home = services.create_group(

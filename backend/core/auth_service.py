@@ -12,6 +12,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from domain import DomainError
@@ -70,7 +71,6 @@ def request_otp(raw_phone: str) -> dict:
     return resp
 
 
-@transaction.atomic
 def verify_otp(raw_phone: str, code: str) -> dict:
     phone = normalize_phone(raw_phone)
     if not isinstance(code, str) or not code.strip():
@@ -78,29 +78,43 @@ def verify_otp(raw_phone: str, code: str) -> dict:
     now = timezone.now()
 
     otp = (
-        OtpCode.objects.select_for_update()
-        .filter(phone=phone, consumed_at__isnull=True, expires_at__gte=now)
+        OtpCode.objects.filter(phone=phone, consumed_at__isnull=True, expires_at__gte=now)
         .order_by("-created_at")
         .first()
     )
     if not otp:
         raise DomainError("INVALID_OTP", "no valid code — request a new one")
-    if otp.attempts >= MAX_ATTEMPTS:
+
+    # Spend an attempt slot in its own UPDATE, not inside a transaction that the
+    # failure below would roll back — otherwise wrong guesses never persist and
+    # the cap can't engage (unlimited brute force). The filtered update is also
+    # the cap check: 0 rows means the slots are gone.
+    claimed = OtpCode.objects.filter(id=otp.id, attempts__lt=MAX_ATTEMPTS).update(
+        attempts=F("attempts") + 1
+    )
+    if not claimed:
         raise DomainError("INVALID_OTP", "too many attempts — request a new code")
 
-    otp.attempts += 1
     if _hash(code.strip()) != otp.code_hash:
-        otp.save(update_fields=["attempts"])
         raise DomainError("INVALID_OTP", "incorrect code")
 
-    otp.consumed_at = now
-    otp.save(update_fields=["attempts", "consumed_at"])
+    with transaction.atomic():
+        # Consume exactly once: a concurrent verify of the same code loses here.
+        consumed = OtpCode.objects.filter(id=otp.id, consumed_at__isnull=True).update(
+            consumed_at=now
+        )
+        if not consumed:
+            raise DomainError("INVALID_OTP", "no valid code — request a new one")
 
-    user = User.objects.filter(phone=phone).first()
-    is_new = user is None
-    if is_new:
-        # Placeholder name until onboarding; user fills it in next.
-        user = User.objects.create(phone=phone, name="")
+        user = User.objects.filter(phone=phone).first()
+        is_new = user is None
+        if is_new:
+            # Placeholder name until onboarding; user fills it in next.
+            user = User.objects.create(phone=phone, name="")
+        elif user.is_placeholder:
+            # An invited placeholder just claimed their account by logging in.
+            user.is_placeholder = False
+            user.save(update_fields=["is_placeholder"])
 
     return {"is_new": is_new, "user": user_to_dict(user), **issue_tokens(user.id)}
 
@@ -140,8 +154,21 @@ def google_login(credential: str) -> dict:
     if is_new:
         user = User.objects.create(
             email=email,
+            email_verified=True,
             name=info.get("name") or "",
             avatar_url=info.get("picture"),
         )
+    else:
+        # Existing account now proven via Google — lock the email from here on,
+        # and clear any invited-placeholder flag (they've claimed the account).
+        fields = []
+        if not user.email_verified:
+            user.email_verified = True
+            fields.append("email_verified")
+        if user.is_placeholder:
+            user.is_placeholder = False
+            fields.append("is_placeholder")
+        if fields:
+            user.save(update_fields=fields)
 
     return {"is_new": is_new, "user": user_to_dict(user), **issue_tokens(user.id)}

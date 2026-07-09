@@ -396,7 +396,7 @@ export function Home() {
       {/* FAB — pinned to the phone-width column, not the viewport */}
       <div className="fixed bottom-24 inset-x-0 max-w-[28rem] mx-auto px-mobile flex justify-end pointer-events-none z-40">
         <button
-          onClick={() => nav(groups.length ? '/add' : '/groups/new')}
+          onClick={() => nav('/add')}
           className="pointer-events-auto w-14 h-14 bg-primary text-on-primary rounded-card flex items-center justify-center active:scale-90 transition-transform"
           style={{ boxShadow: '0 6px 16px rgba(181,35,48,0.35)' }}
         >

@@ -47,6 +47,7 @@ Everything is re-exported from `domain/__init__.py`.
 | `test_property.py` | Hypothesis invariants (I1–I9) — no DB |
 | `test_authz.py` | Authorization matrix: outsider → 404, party-only settlement actions, etc. |
 | `test_api.py` | End-to-end API flows (needs DB) |
+| `test_hardening.py` | Stress-test regressions: OTP attempt cap, idempotency scoping, archived read-only, round-robin advance, search privacy, unfriend |
 
 `conftest.py` wires Django settings for pytest.
 
@@ -58,7 +59,8 @@ Everything is re-exported from `domain/__init__.py`.
   only orchestrate.
 - Unauthorized access returns **404** (`NOT_FOUND`), not 403 — deliberate,
   prevents id probing. Don't "fix" this.
-- Mutations take `Idempotency-Key`; response stored in `IdempotencyRecord`.
+- Mutations take `Idempotency-Key`; response stored in `IdempotencyRecord`,
+  keyed per endpoint + actor (one user's key never replays another's response).
 - Schema changes need a migration (`python manage.py makemigrations core`) and
   must stay faithful to the Spec §2 DDL (table names are set via `db_table`).
 

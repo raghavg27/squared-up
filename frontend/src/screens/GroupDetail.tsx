@@ -33,8 +33,9 @@ export function GroupDetail() {
   const myShare = thisMonth.reduce((s, e) => s + (e.shares.find((sh) => sh.user_id === me?.id)?.owed_paise ?? 0), 0);
   const sharePct = total > 0 ? Math.round((myShare / total) * 100) : 0;
   const recent = expenses.slice(0, 8);
+  const archived = !!group?.archived_at;
   const myDebts = balances?.simplified_settlements.filter((s) => s.from_user === me?.id) ?? [];
-  const topDebt = myDebts.slice().sort((a, b) => b.amount_paise - a.amount_paise)[0];
+  const topDebt = !archived ? myDebts.slice().sort((a, b) => b.amount_paise - a.amount_paise)[0] : undefined;
   const [nudged, setNudged] = useState(false);
 
   async function nudge() {
@@ -46,7 +47,7 @@ export function GroupDetail() {
   }
 
   return (
-    <div className={`min-h-screen bg-paper ${topDebt ? 'pb-44' : 'pb-28'}`}>
+    <div className={`min-h-screen bg-paper ${archived ? 'pb-10' : topDebt ? 'pb-44' : 'pb-28'}`}>
       <header className="bg-paper sticky top-0 z-40 flex items-center justify-between px-mobile py-3">
         <button onClick={() => nav(-1)} className="w-10 h-10 flex items-center justify-center text-primary active:scale-95 transition-transform">
           <Icon name="arrow_back" />
@@ -58,8 +59,14 @@ export function GroupDetail() {
       </header>
 
       <main className="px-mobile flex flex-col gap-5 stagger">
+        {archived && (
+          <div className="bg-surface-container-high rounded-card p-3 flex items-center gap-2 text-neutral-600">
+            <Icon name="inventory_2" style={{ fontSize: 20 }} />
+            <span className="font-body text-[13px]">This group is archived. It's read-only — restore it from Settings to add expenses.</span>
+          </div>
+        )}
         {/* Turn to Pay */}
-        {turn && (
+        {!archived && turn && (
           <div className="bg-primary/10 rounded-card p-4 flex items-center gap-3">
             <Avatar name={name(turn.next_payer.user_id)} size={48} />
             <div className="flex-1 min-w-0">
@@ -141,7 +148,8 @@ export function GroupDetail() {
         </section>
       </main>
 
-      {/* Action bar */}
+      {/* Action bar — hidden for archived (read-only) groups */}
+      {!archived && (
       <div className="fixed bottom-0 left-0 right-0 max-w-[28rem] mx-auto px-mobile pb-5 pt-3 safe-bottom bg-gradient-to-t from-paper via-paper to-transparent flex flex-col gap-2">
         {topDebt && (
           <button
@@ -160,6 +168,7 @@ export function GroupDetail() {
           <Icon name="add" style={{ fontSize: 22 }} />
         </button>
       </div>
+      )}
     </div>
   );
 }

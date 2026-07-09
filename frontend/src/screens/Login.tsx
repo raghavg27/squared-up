@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Icon } from '../ui.js';
 import { Logo } from './Loading.js';
 import { apiClient, ApiError } from '../api.js';
@@ -20,11 +20,24 @@ function gsi(): GoogleId | undefined {
 export function Login() {
   const nav = useNavigate();
   const { loginWith } = useStore();
+  const [params] = useSearchParams();
   const [step, setStep] = useState<'intro' | 'phone'>('intro');
   const [phone, setPhone] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const googleBtnRef = useRef<HTMLDivElement>(null);
+
+  // Arrived via an invite link (?phone/&email/&name — see invite.ts): pre-fill
+  // the phone step, and stash the name so onboarding can pre-fill it too.
+  useEffect(() => {
+    const invName = params.get('name');
+    if (invName) sessionStorage.setItem('su_invite_name', invName);
+    const invPhone = params.get('phone');
+    if (invPhone) {
+      setPhone(invPhone.replace(/[^0-9]/g, '').slice(-10)); // strip +91 / spaces
+      setStep('phone');
+    }
+  }, [params]);
 
   // Load Google Identity Services and render the official sign-in button.
   // renderButton uses a popup flow — unlike One Tap prompt() it is not

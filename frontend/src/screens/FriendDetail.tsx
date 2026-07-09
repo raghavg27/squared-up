@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { apiClient, type Expense } from '../api.js';
+import { apiClient, type Expense, type User } from '../api.js';
 import { useStore } from '../store.js';
 import { rupees } from '../format.js';
 import { Avatar, Icon, categoryFor } from '../ui.js';
+import { shareInvite } from '../invite.js';
 
 // Per-friend view of non-group ("personal") splits — the friend analog of
 // GroupDetail. Lists shared personal expenses (each editable via ExpenseDetail)
@@ -13,10 +14,14 @@ export function FriendDetail() {
   const friendId = Number(id);
   const nav = useNavigate();
   const { me, name } = useStore();
+  const [friend, setFriend] = useState<User | null>(null);
   const [expenses, setExpenses] = useState<Expense[] | null>(null);
   const [net, setNet] = useState(0); // + they owe me, − I owe them
 
   useEffect(() => {
+    // Resolve the friend directly (not via the store's cached directory, which
+    // can lag a just-added placeholder) so the name shows instead of "#<id>".
+    apiClient.user(friendId).then(setFriend).catch(() => setFriend(null));
     apiClient.personalExpenses(friendId).then(setExpenses).catch(() => setExpenses([]));
     apiClient.personalBalances()
       .then((b) => setNet(b.counterparties.find((c) => c.user_id === friendId)?.net_paise ?? 0))
@@ -24,7 +29,12 @@ export function FriendDetail() {
   }, [friendId]);
 
   const settled = net === 0;
-  const label = useMemo(() => name(friendId), [name, friendId]);
+  const label = useMemo(() => friend?.name?.trim() || name(friendId), [friend, name, friendId]);
+  const pending = !!friend?.is_placeholder;
+
+  async function invite() {
+    if (friend) await shareInvite(friend, me?.name ?? '');
+  }
 
   return (
     <div className="min-h-screen bg-paper pb-28">
@@ -47,6 +57,27 @@ export function FriendDetail() {
             </span>
           </div>
         </section>
+
+        {/* Invite: shown until the person signs in and claims their account. */}
+        {pending && (
+          <button
+            onClick={invite}
+            className="bg-amber/10 border border-amber/30 rounded-card p-3 flex items-center justify-between gap-3 text-left active:scale-[0.99] transition-transform"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-button bg-amber/15 text-amber flex items-center justify-center shrink-0">
+                <Icon name="schedule" fill style={{ fontSize: 22 }} />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="font-heading text-[15px] font-semibold text-ink">Invite pending</span>
+                <span className="font-caption text-caption text-neutral-600 truncate">{label} hasn't joined yet — send them a link.</span>
+              </div>
+            </div>
+            <span className="px-4 h-9 rounded-button bg-primary text-on-primary font-body text-[15px] font-medium flex items-center gap-1.5 shrink-0">
+              <Icon name="share" style={{ fontSize: 18 }} />Invite
+            </span>
+          </button>
+        )}
 
         {/* Actions */}
         <div className="flex gap-3">

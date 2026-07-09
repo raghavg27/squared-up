@@ -3,11 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { apiClient, type User } from '../api.js';
 import { useStore } from '../store.js';
 import { rupees } from '../format.js';
-import { Avatar, Icon } from '../ui.js';
+import { Avatar, Icon, InviteCard } from '../ui.js';
 
 export function Friends() {
   const nav = useNavigate();
-  const { me, groups } = useStore();
+  const { me, groups, reloadUsers } = useStore();
   const [friends, setFriends] = useState<User[]>([]);
   const [q, setQ] = useState('');
   const [results, setResults] = useState<User[]>([]);
@@ -56,7 +56,15 @@ export function Friends() {
   const friendIds = new Set(friends.map((f) => f.id));
 
   async function add(u: User) {
-    try { const r = await apiClient.addFriend(u.id); setFriends(r.friends); }
+    // reloadUsers so the store's directory (and name()) learns a freshly-added
+    // placeholder immediately — otherwise their FriendDetail shows "#<id>".
+    try { const r = await apiClient.addFriend(u.id); setFriends(r.friends); reloadUsers(); }
+    catch { /* surfaced by list not updating */ }
+  }
+
+  async function unfriend(u: User) {
+    if (!window.confirm(`Remove ${u.name || 'this person'} from your friends? Shared expenses and balances are kept.`)) return;
+    try { const r = await apiClient.removeFriend(u.id); setFriends(r.friends); }
     catch { /* surfaced by list not updating */ }
   }
 
@@ -73,7 +81,7 @@ export function Friends() {
       <main className="px-mobile flex flex-col gap-4">
         <div className="relative">
           <Icon name="search" className="text-neutral-600 absolute left-4 top-1/2 -translate-y-1/2" style={{ fontSize: 22 }} />
-          <input value={q} onChange={(e) => setQ(e.target.value)} className="input-warm pl-12" placeholder="Search by name or phone" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} className="input-warm pl-12" placeholder="Search by name, phone, or email" />
         </div>
 
         {q.trim().length >= 2 ? (
@@ -88,25 +96,41 @@ export function Friends() {
                 )}
               </Row>
             ))}
-            {!searching && results.length === 0 && <Empty icon="person_search" text="No one found by that name or number." />}
+            {!searching && results.length === 0 && (
+              // Add-only: this creates a pending friend. Sending the join link
+              // lives on their FriendDetail page (Invite button) once added.
+              <InviteCard query={q} onInvite={(u) => { add(u); setQ(''); }} />
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-3">
             <h3 className="font-caption text-caption text-on-surface-variant">Your friends</h3>
             {friends.map((u) => {
               const net = nets.get(u.id) ?? 0;
+              const pending = !!u.is_placeholder;
               return (
                 <Row key={u.id} u={u} onClick={() => nav(`/friends/${u.id}`)}>
-                  {net === 0 ? (
-                    <span className="font-caption text-caption text-neutral-600">Squared up</span>
-                  ) : (
+                  {net !== 0 ? (
                     <div className="flex flex-col items-end">
                       <span className={`font-currency text-[15px] font-semibold tnum ${net > 0 ? 'text-success' : 'text-primary'}`}>
                         {net > 0 ? '+' : '-'}{rupees(Math.abs(net))}
                       </span>
                       <span className="font-caption text-caption text-neutral-600">{net > 0 ? 'owes you' : 'you owe'}</span>
                     </div>
+                  ) : pending ? (
+                    <span className="font-caption text-caption text-amber flex items-center gap-1">
+                      <Icon name="schedule" style={{ fontSize: 16 }} />Invite pending
+                    </span>
+                  ) : (
+                    <span className="font-caption text-caption text-neutral-600">Squared up</span>
                   )}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); unfriend(u); }}
+                    title="Remove friend"
+                    className="w-9 h-9 rounded-full flex items-center justify-center text-neutral-400 active:scale-95 transition-transform"
+                  >
+                    <Icon name="person_remove" style={{ fontSize: 20 }} />
+                  </button>
                 </Row>
               );
             })}
@@ -127,7 +151,7 @@ function Row({ u, children, onClick }: { u: User; children: React.ReactNode; onC
       <Avatar name={u.name || u.phone || '?'} size={44} />
       <div className="flex flex-col flex-1 min-w-0">
         <span className="font-heading text-[17px] font-semibold text-ink truncate">{u.name || 'Unnamed'}</span>
-        <span className="font-caption text-caption text-neutral-600 truncate tnum">{u.phone ?? u.upi_vpa ?? ''}</span>
+        <span className="font-caption text-caption text-neutral-600 truncate tnum">{u.phone ?? u.email ?? u.upi_vpa ?? ''}</span>
       </div>
       {children}
     </div>

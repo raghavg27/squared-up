@@ -155,6 +155,8 @@ def test_invited_placeholder_resolves_to_same_user_on_login(client, world):
     assert r.status_code == 201
     uid = r.data["id"]
     assert r.data["phone"] == "+919812345678"
+    # Invited, not yet joined → placeholder (drives the "invite pending" UI).
+    assert r.data["is_placeholder"] is True
     # Re-invite with equivalent formats → same user, no duplicate.
     for variant in ("9812345678", "+91 98123 45678", "+919812345678"):
         r2 = client.post("/api/v1/users", {"name": "Dup", "phone": variant}, format="json")
@@ -166,6 +168,36 @@ def test_invited_placeholder_resolves_to_same_user_on_login(client, world):
     assert r3.data["is_new"] is False
     assert r3.data["user"]["id"] == uid
     assert r3.data["user"]["name"] == "Rohan"
+    # Claiming the account by logging in clears the placeholder flag.
+    assert r3.data["user"]["is_placeholder"] is False
+
+
+def test_self_signup_is_not_a_placeholder(client):
+    # A brand-new OTP signup (nobody invited them) is a real, joined user.
+    anon = APIClient()
+    code = anon.post("/api/v1/auth/request-otp", {"phone": "9800000123"}, format="json").data["dev_code"]
+    r = anon.post("/api/v1/auth/verify-otp", {"phone": "9800000123", "code": code}, format="json")
+    assert r.data["is_new"] is True
+    assert r.data["user"]["is_placeholder"] is False
+
+
+def test_invited_by_email_dedupes_and_is_not_stored_as_name(client, world):
+    # Inviting by email must put the address in `email` (a login identity), not
+    # in `name`, and re-inviting the same address (any case) reuses the user.
+    _as(client, world["a"])
+    r = client.post("/api/v1/users", {"name": "Meera", "email": "Meera@Example.com"}, format="json")
+    assert r.status_code == 201
+    uid = r.data["id"]
+    assert r.data["name"] == "Meera"
+    assert r.data["email"] == "meera@example.com"
+    r2 = client.post("/api/v1/users", {"name": "Dup", "email": "meera@example.com"}, format="json")
+    assert r2.data["id"] == uid
+
+
+def test_invited_by_bad_email_is_rejected(client, world):
+    _as(client, world["a"])
+    r = client.post("/api/v1/users", {"name": "Nope", "email": "not-an-email"}, format="json")
+    assert r.status_code == 422
 
 
 def test_activity_feed_includes_group_events_for_members(client, world):

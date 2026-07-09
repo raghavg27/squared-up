@@ -60,6 +60,14 @@ if env_bool("USE_SQLITE", False):
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
             "NAME": BASE_DIR / "dev.sqlite3",
+            # Writers must take the write lock up front (BEGIN IMMEDIATE) and
+            # queue on it: SQLite's default deferred transactions deadlock on
+            # the read→write lock upgrade under concurrent requests and fail
+            # instantly with "database is locked", ignoring any busy timeout.
+            "OPTIONS": {
+                "transaction_mode": "IMMEDIATE",
+                "init_command": "PRAGMA busy_timeout=5000;",
+            },
         }
     }
 else:

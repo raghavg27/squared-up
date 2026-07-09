@@ -16,6 +16,7 @@ library — one context store. No frontend test suite: verify with
 | `format.ts` | `rupees()/rupees0()/signedRupees()` — the only paise→display conversion. Never format money inline. |
 | `upiApp.ts` | Preferred-UPI-app persistence + `preferredIntent()` rewrite of `upi://` links. |
 | `share.ts` | `shareText()` — Web Share API with clipboard fallback. |
+| `invite.ts` | `inviteLink()`/`shareInvite()` — build + share the `/login?invite=…&phone=/&email=/&name=` join deep-link; invitee dedupes onto the placeholder on sign-in. |
 | `index.css` | Tailwind v4 `@theme` tokens (colors, radii) + animation classes (`route-fade`, `sheet-up`, `pop-in`, `stagger`) + reduced-motion opt-out. |
 | `AddExpense.tsx` | Add-expense flow (group and personal) — top-level, not in screens/. |
 

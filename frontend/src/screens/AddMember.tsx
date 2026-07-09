@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { apiClient, ApiError, type Group, type User } from '../api.js';
 import { useStore } from '../store.js';
 import { Avatar, Icon, InviteCard } from '../ui.js';
+import { shareInvite } from '../invite.js';
 
 export function AddMember() {
   const { id } = useParams();
@@ -48,6 +49,18 @@ export function AddMember() {
     finally { setBusyId(null); }
   }
 
+  // Add the placeholder to the group AND share a join link, so balances track
+  // now and the person inherits them when they sign in with that contact.
+  async function shareInvited(u: User) {
+    setBusyId(-1); setErr(null);
+    try {
+      const g = await apiClient.addMember(gid, u.id);
+      setGroup(g); reloadUsers(); setQ('');
+      await shareInvite(u, me?.name ?? '', group?.name);
+    } catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not invite'); }
+    finally { setBusyId(null); }
+  }
+
   const suggestions = q.trim().length >= 2 ? results : friends;
   const visible = suggestions.filter((u) => u.id !== me?.id);
 
@@ -78,7 +91,7 @@ export function AddMember() {
                 <Avatar name={u.name || u.phone || '?'} size={44} />
                 <div className="flex flex-col flex-1 min-w-0">
                   <span className="font-heading text-[17px] font-semibold text-ink truncate">{u.name || 'Unnamed'}</span>
-                  <span className="font-caption text-caption text-neutral-600 truncate tnum">{u.phone ?? u.upi_vpa ?? ''}</span>
+                  <span className="font-caption text-caption text-neutral-600 truncate tnum">{u.phone ?? u.email ?? u.upi_vpa ?? ''}</span>
                 </div>
                 {inGroup ? (
                   <span className="font-caption text-caption text-tertiary flex items-center gap-1"><Icon name="check" style={{ fontSize: 18 }} />Added</span>
@@ -90,7 +103,7 @@ export function AddMember() {
           })}
 
           {q.trim().length >= 2 && visible.length === 0 && (
-            <InviteCard query={q} busy={busyId === -1} onInvite={addInvited} />
+            <InviteCard query={q} busy={busyId === -1} onInvite={addInvited} onInviteLink={shareInvited} />
           )}
           {q.trim().length < 2 && visible.length === 0 && (
             <p className="font-body text-[15px] text-neutral-600 text-center py-4">Search to add friends or family to this group.</p>
