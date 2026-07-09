@@ -12,7 +12,7 @@ library — one context store. No frontend test suite: verify with
 | `App.tsx` | All routes + auth gating (`loading/anon/onboarding/ready`) + `Shell` (max-width column, route-fade). Add new screens here. |
 | `store.tsx` | Global context: `auth` state machine, `me`, `users`/`userMap`, `groups`, `name(id)`, login/logout/reload. Access via `useStore()`. |
 | `api.ts` | **All server types + calls.** Interfaces mirror backend JSON; `apiClient` methods per endpoint; token storage + transparent refresh-on-401 (`AuthExpiredError` → `su-auth-expired` event → store logs out). Add new endpoints here, typed. |
-| `ui.tsx` | Shared kit: `Icon` (Material Symbols name), `Avatar`, `BottomNav`, `InviteCard`, `useCountUp`, `categoryFor`, `groupTypeStyle`. Check here before writing new UI primitives. |
+| `ui.tsx` | Shared kit: `Icon` (Material Symbols name), `Avatar`, `AppHeader` (the one brand top bar shared by all tab roots — brand→Home left, optional `action` + notifications + account right), `BottomNav`, `InviteCard`, `useCountUp`, `categoryFor`, `groupTypeStyle`. Check here before writing new UI primitives. |
 | `format.ts` | `rupees()/rupees0()/signedRupees()` — the only paise→display conversion. Never format money inline. |
 | `upiApp.ts` | Preferred-UPI-app persistence + `preferredIntent()` rewrite of `upi://` links. |
 | `share.ts` | `shareText()` — Web Share API with clipboard fallback. |

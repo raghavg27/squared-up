@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { apiClient, type Balances, type Expense } from '../api.js';
 import { useStore } from '../store.js';
 import { rupees } from '../format.js';
-import { Avatar, Icon, categoryFor, groupTypeStyle, useCountUp } from '../ui.js';
+import { AppHeader, Avatar, Icon, categoryFor, groupTypeStyle, useCountUp } from '../ui.js';
 import { shareText } from '../share.js';
 
 export function Home() {
@@ -128,23 +128,17 @@ export function Home() {
 
   return (
     <div className="min-h-screen pb-28 bg-paper">
-      {/* Top App Bar */}
-      <header className="bg-paper sticky top-0 z-40 flex items-center justify-between px-mobile py-3">
-        <Link to="/profile" className="flex items-center gap-3 min-w-0 active:scale-[0.98] transition-transform">
-          <Avatar name={me?.name ?? ''} size={40} />
-          <div className="flex flex-col min-w-0">
-            <span className="font-heading text-[17px] font-bold text-ink leading-tight truncate">Hi {firstName}</span>
-            <span className="font-caption text-caption text-neutral-600">
-              {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })}
-            </span>
-          </div>
-        </Link>
-        <Link to="/activity" className="w-10 h-10 flex items-center justify-center rounded-full text-primary active:scale-95 transition-transform">
-          <Icon name="notifications" />
-        </Link>
-      </header>
+      <AppHeader />
 
       <main className="px-mobile flex flex-col gap-6 stagger">
+        {/* Personal greeting: the top heading, matching the big page titles
+            on Groups/Activity so every tab opens the same way. */}
+        <div className="mt-2">
+          <h2 className="font-heading text-[32px] font-bold text-ink leading-tight">Hi {firstName}</h2>
+          <p className="font-caption text-caption text-neutral-600">
+            {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })}
+          </p>
+        </div>
         {groups.length === 0 && (
           <section className="bg-surface-container-lowest rounded-card p-6 border border-neutral-300 card-shadow flex flex-col items-center text-center gap-3">
             <div className="w-14 h-14 rounded-card bg-primary/10 text-primary flex items-center justify-center">

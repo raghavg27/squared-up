@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store.js';
-import { Avatar, Icon } from '../ui.js';
+import { AppHeader, Avatar, Icon } from '../ui.js';
 import { getUpiApp } from '../upiApp.js';
 
 export function Profile() {
@@ -17,8 +17,10 @@ export function Profile() {
   };
 
   return (
-    <div className="min-h-screen pb-28 bg-paper flex flex-col items-center px-mobile">
-      <button onClick={() => nav('/profile/edit')} className="flex flex-col items-center mt-10 active:scale-[0.99] transition-transform">
+    <div className="min-h-screen pb-28 bg-paper">
+      <AppHeader />
+      <div className="flex flex-col items-center px-mobile">
+      <button onClick={() => nav('/profile/edit')} className="flex flex-col items-center mt-6 active:scale-[0.99] transition-transform">
         <div className="relative">
           {me?.name ? <Avatar name={me.name} size={112} /> : (
             <div className="w-28 h-28 rounded-full bg-surface-container-highest flex items-center justify-center text-neutral-300"><Icon name="account_circle" fill style={{ fontSize: 96 }} /></div>
@@ -52,6 +54,7 @@ export function Profile() {
         <Icon name="logout" style={{ fontSize: 22 }} />
         Logout
       </button>
+      </div>
     </div>
   );
 }

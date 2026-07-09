@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { apiClient, type ActivityEvent } from '../api.js';
 import { useStore } from '../store.js';
 import { rupees } from '../format.js';
-import { Avatar, Icon } from '../ui.js';
+import { AppHeader, Icon } from '../ui.js';
 
 interface Row {
   id: number; icon: string; tint: string; fg: string;
@@ -90,11 +89,7 @@ export function ActivityFeed() {
 
   return (
     <div className="min-h-screen pb-28 bg-paper">
-      <header className="bg-paper sticky top-0 z-40 flex items-center justify-between px-mobile py-3">
-        <div className="w-10 h-10 flex items-center justify-center"><img src="/logo.png" alt="" width={28} height={28} style={{ objectFit: 'contain' }} /></div>
-        <h1 className="font-heading text-[22px] font-bold text-primary">Squared Up</h1>
-        <Link to="/profile"><Avatar name={me?.name ?? ''} size={36} /></Link>
-      </header>
+      <AppHeader />
 
       <main className="px-mobile flex flex-col gap-4 stagger">
         <h2 className="font-heading text-[32px] font-bold text-ink mt-2">Activity</h2>

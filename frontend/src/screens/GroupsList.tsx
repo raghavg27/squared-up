@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { apiClient, type Balances, type Group } from '../api.js';
 import { useStore } from '../store.js';
 import { rupees } from '../format.js';
-import { Icon, groupTypeStyle } from '../ui.js';
+import { AppHeader, Icon, groupTypeStyle } from '../ui.js';
 
 export function GroupsList() {
   const { me, groups, reloadGroups } = useStore();
@@ -30,15 +30,13 @@ export function GroupsList() {
 
   return (
     <div className="min-h-screen pb-28 bg-paper">
-      <header className="bg-paper sticky top-0 z-40 flex items-center justify-between px-mobile py-3">
-        <div className="flex items-center gap-2">
-          <img src="/logo.png" alt="" width={28} height={28} style={{ objectFit: 'contain' }} />
-          <h1 className="font-heading text-[22px] font-bold text-primary">Squared Up</h1>
-        </div>
-        <button onClick={() => nav('/groups/new')} className="w-10 h-10 flex items-center justify-center text-primary active:scale-95 transition-transform">
-          <Icon name="add" />
-        </button>
-      </header>
+      <AppHeader
+        action={
+          <button onClick={() => nav('/groups/new')} aria-label="New group" className="w-10 h-10 flex items-center justify-center text-primary active:scale-95 transition-transform">
+            <Icon name="add" />
+          </button>
+        }
+      />
 
       <main className="px-mobile flex flex-col gap-4 stagger">
         <h2 className="font-heading text-[32px] font-bold text-ink mt-2">Groups</h2>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { Link, NavLink } from 'react-router-dom';
 import { apiClient, ApiError, type User } from './api.js';
+import { useStore } from './store.js';
 
 // ── Count-up: makes hero money numbers land with a satisfying roll ─────
 export function useCountUp(target: number, ms = 600): number {
@@ -181,6 +182,32 @@ export function InviteCard({ query, busy, onInvite, onInviteLink }: {
           : 'You can square up on their behalf until they join.'}
       </p>
     </div>
+  );
+}
+
+// ── Top app bar: one brand header shared by every tab root ────────────
+// Home/Groups/Activity/Profile all render this so the top of the app never
+// jumps between a greeting, a wordmark, and nothing. Left = brand → Home.
+// Right = a page-specific `action` (e.g. Groups' "+") then the universal
+// notifications + account controls, in that fixed order on every tab.
+export function AppHeader({ action }: { action?: React.ReactNode }) {
+  const { me } = useStore();
+  return (
+    <header className="bg-paper sticky top-0 z-40 flex items-center justify-between px-mobile py-3">
+      <Link to="/" className="flex items-center gap-2 min-w-0 active:scale-[0.98] transition-transform">
+        <img src="/logo.png" alt="" width={28} height={28} style={{ objectFit: 'contain' }} />
+        <h1 className="font-heading text-[22px] font-bold text-primary truncate">Squared Up</h1>
+      </Link>
+      <div className="flex items-center gap-1 shrink-0">
+        {action}
+        <Link to="/activity" aria-label="Activity" className="w-10 h-10 flex items-center justify-center rounded-full text-primary active:scale-95 transition-transform">
+          <Icon name="notifications" />
+        </Link>
+        <Link to="/profile" aria-label="Profile" className="active:scale-95 transition-transform">
+          <Avatar name={me?.name ?? ''} size={36} />
+        </Link>
+      </div>
+    </header>
   );
 }
 
