@@ -12,7 +12,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from . import services
-from .ai import parse_natural_language, categorize
+from .ai import parse_expense, categorize
 from .exceptions import bad_request, not_found
 from .validators import (
     validate_create_expense,
@@ -216,9 +216,14 @@ def settlements_dispute(request, pk: int):
 @api_view(["POST"])
 def ai_parse(request):
     text = request.data.get("text")
-    if not isinstance(text, str) or not text:
+    if not isinstance(text, str) or not text.strip():
         raise bad_request("VALIDATION_ERROR", "text is required")
-    return Response(parse_natural_language(text))
+    if len(text) > 500:
+        raise bad_request("VALIDATION_ERROR", "text too long (max 500 chars)")
+    member_names = request.data.get("member_names", [])
+    if not isinstance(member_names, list) or not all(isinstance(n, str) for n in member_names):
+        raise bad_request("VALIDATION_ERROR", "member_names must be a list of strings")
+    return Response(parse_expense(text, member_names[:50], request.user.name))
 
 
 @api_view(["POST"])

@@ -34,7 +34,10 @@ export interface Turn {
 }
 export interface NlDraft {
   description: string; amount_paise: number | null; category: string;
-  mentioned_names: string[]; i_paid: boolean; split_type: 'equal'; confidence: number;
+  payer_name: string | null; i_paid: boolean;
+  participant_names: string[]; split_type: 'equal' | 'exact';
+  exact_amounts_paise: Record<string, number> | null;
+  mentioned_names: string[]; confidence: number; source: 'llm' | 'rules';
 }
 export interface SettlementResult { id: number; status: string; method: string; upi_intent: string | null; requires_confirmation: boolean }
 export interface Settlement {
@@ -176,6 +179,7 @@ export const apiClient = {
   confirmSettlement: (id: number) => req(`/settlements/${id}/confirm`, { method: 'PATCH' }),
 
   // AI + activity
-  parse: (text: string) => req<NlDraft>('/ai/parse', { method: 'POST', body: JSON.stringify({ text }) }),
+  parse: (text: string, memberNames: string[]) =>
+    req<NlDraft>('/ai/parse', { method: 'POST', body: JSON.stringify({ text, member_names: memberNames }) }),
   activity: () => req<ActivityEvent[]>('/activity'),
 };

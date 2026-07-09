@@ -35,7 +35,8 @@ Everything is re-exported from `domain/__init__.py`.
 | `exceptions.py` | §11 error envelope: exception handler mapping codes → HTTP status. |
 | `middleware.py` | Request plumbing (see file). |
 | `sms.py` | OTP delivery seam: `console` (logs + returns `dev_code`) or `twilio` (REST, no SDK). Selected by `SMS_PROVIDER`. |
-| `ai.py` | NL expense parse + auto-categorize (draft only — never writes). |
+| `ai.py` | NL expense parse + auto-categorize (draft only — never writes). `parse_expense()` = Gemini first (via `ai_llm.py`), deterministic rules fallback. Both emit one contract; names always resolved against the caller's member list. |
+| `ai_llm.py` | Gemini structured-output client for NL parse. All money math (rupee→paise, per-head, exact-share balancing) done server-side; any failure returns `None` → rules fallback. Needs `GEMINI_API_KEY`. |
 | `urls.py` | Full route table with comments — **read this first to find an endpoint**. |
 | `management/commands/seed.py` | Demo data (`python manage.py seed`, or `SEED_DEMO=1` in Docker). |
 
@@ -48,6 +49,7 @@ Everything is re-exported from `domain/__init__.py`.
 | `test_authz.py` | Authorization matrix: outsider → 404, party-only settlement actions, etc. |
 | `test_api.py` | End-to-end API flows (needs DB) |
 | `test_hardening.py` | Stress-test regressions: OTP attempt cap, idempotency scoping, archived read-only, round-robin advance, search privacy, unfriend |
+| `test_ai_parse.py` | NL parse: Gemini normalization (mocked, no network), rules fallback, /ai/parse endpoint contract |
 
 `conftest.py` wires Django settings for pytest.
 
@@ -68,5 +70,6 @@ Everything is re-exported from `domain/__init__.py`.
 
 `.env` at `backend/.env` (copy `.env.example`). Key vars: `DJANGO_SECRET_KEY`,
 `USE_SQLITE`, `POSTGRES_*`, `SMS_PROVIDER` (+ `TWILIO_*`), `GOOGLE_CLIENT_ID`,
+`GEMINI_API_KEY`/`GEMINI_MODEL` (NL parse LLM; empty key = rules-only),
 `CORS_ALLOWED_ORIGINS`. No inline comments in `.env` — python-dotenv keeps them
 as part of the value.

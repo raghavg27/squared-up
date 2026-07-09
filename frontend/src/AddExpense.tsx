@@ -63,12 +63,27 @@ export function AddExpense() {
     if (!nl.trim()) return;
     setNlBusy(true); setErr(null);
     try {
-      const d = await apiClient.parse(nl);
+      const d = await apiClient.parse(nl, members.map((mid) => name(mid)));
+      const byName = (n: string) => members.find((mid) => name(mid).toLowerCase() === n.toLowerCase());
       setDesc(d.description);
       if (d.amount_paise !== null) setAmount((d.amount_paise / 100).toString());
-      if (d.i_paid && me) setPayer(me.id);
-      const matched = members.filter((mid) => mid === me?.id || d.mentioned_names.some((n) => name(mid).toLowerCase() === n.toLowerCase()));
-      setParticipants(matched.length > 1 ? matched : members);
+      const payerId = d.payer_name != null ? byName(d.payer_name) : undefined;
+      if (payerId !== undefined) setPayer(payerId);
+      else if (d.i_paid && me) setPayer(me.id);
+      const matched = d.participant_names
+        .map(byName)
+        .filter((x): x is number => x !== undefined);
+      setParticipants(matched.length > 0 ? matched : members);
+      if (d.split_type === 'exact' && d.exact_amounts_paise) {
+        const per: Record<number, string> = {};
+        for (const [n, paise] of Object.entries(d.exact_amounts_paise)) {
+          const uid = byName(n);
+          if (uid !== undefined) per[uid] = (paise / 100).toString();
+        }
+        setSplitType('exact'); setPerUser(per);
+      } else {
+        setSplitType('equal');
+      }
     } catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not parse that — fill the form below'); }
     finally { setNlBusy(false); }
   }
