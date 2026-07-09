@@ -24,6 +24,8 @@ import { EditExpense } from './screens/EditExpense.js';
 import { SettleUp } from './screens/SettleUp.js';
 import { AddExpense } from './AddExpense.js';
 import { AddTarget } from './screens/AddTarget.js';
+import { Privacy } from './screens/Privacy.js';
+import { Terms } from './screens/Terms.js';
 
 const TAB_PATHS = ['/', '/groups', '/activity', '/profile'];
 const PUBLIC_PATHS = ['/login', '/otp'];
@@ -41,6 +43,8 @@ export function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/otp" element={<OtpVerify />} />
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/terms" element={<Terms />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </Shell>
@@ -89,6 +93,8 @@ export function App() {
         <Route path="/expense/:id" element={<ExpenseDetail />} />
         <Route path="/expense/:id/edit" element={<EditExpense />} />
         <Route path="/settle/:groupId/:toUserId" element={<SettleUp />} />
+        <Route path="/privacy" element={<Privacy />} />
+        <Route path="/terms" element={<Terms />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       {showNav && <BottomNav />}

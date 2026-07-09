@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Icon } from '../ui.js';
 import { Logo } from './Loading.js';
 import { apiClient, ApiError } from '../api.js';
@@ -153,6 +153,12 @@ export function Login() {
             >
               {busy ? 'Sending…' : 'Send code'}
             </button>
+            <p className="font-caption text-caption text-neutral-600 text-center mt-4 leading-relaxed">
+              By continuing you accept our{' '}
+              <Link to="/privacy" className="text-primary underline">Privacy Policy</Link>{' '}
+              and{' '}
+              <Link to="/terms" className="text-primary underline">Terms of Agreement</Link>.
+            </p>
             <button onClick={() => { setStep('intro'); setErr(null); }} className="w-full text-center font-body text-[15px] text-neutral-600 mt-4">
               Back
             </button>

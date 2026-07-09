@@ -26,6 +26,8 @@ Routes are defined in `App.tsx`; screen files match their names
 (`/groups/:id` → `GroupDetail.tsx`, `/settle/:groupId/:toUserId` → `SettleUp.tsx`,
 `/expense/:id` → `ExpenseDetail.tsx`, etc.). Auth screens: `Login`, `OtpVerify`,
 `Onboarding`. Tab roots: `Home`, `GroupsList`, `ActivityFeed`, `Profile`.
+Public legal pages (viewable logged-out; linked from Login): `/privacy` →
+`Privacy.tsx`, `/terms` → `Terms.tsx`, both built on `LegalLayout.tsx`.
 
 ## Conventions
 
