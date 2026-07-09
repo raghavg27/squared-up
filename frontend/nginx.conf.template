@@ -10,6 +10,13 @@ server {
         add_header Cache-Control "public, immutable";
     }
 
+    # Never cache the service worker or app shell — clients must revalidate so
+    # PWA updates actually ship (fingerprinted /assets/ stay immutable above).
+    location = /sw.js            { add_header Cache-Control "no-cache"; }
+    location = /registerSW.js    { add_header Cache-Control "no-cache"; }
+    location = /manifest.webmanifest { add_header Cache-Control "no-cache"; }
+    location = /index.html       { add_header Cache-Control "no-cache"; }
+
     # Proxy API calls to the Django backend (same-origin → no CORS needed).
     # BACKEND_URL is the backend service origin (docker: http://backend:8000;
     # Railway: the backend's public https domain).
