@@ -5,6 +5,7 @@ import { useStore } from '../store.js';
 import { rupees, rupees0 } from '../format.js';
 import { Avatar, Icon, categoryFor } from '../ui.js';
 import { shareText } from '../share.js';
+import { useDataChanged } from '../dataEvents.js';
 
 export function GroupDetail() {
   const { id } = useParams();
@@ -16,12 +17,14 @@ export function GroupDetail() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [turn, setTurn] = useState<Turn | null>(null);
 
+  const bump = useDataChanged();
   const reload = useCallback(() => {
     apiClient.group(groupId).then(setGroup).catch(() => {});
     apiClient.balances(groupId).then(setBalances).catch(() => {});
     apiClient.expenses(groupId).then(setExpenses).catch(() => {});
     apiClient.turn(groupId).then(setTurn).catch(() => setTurn(null));
-  }, [groupId]);
+    // bump: refetch when an Undo toast (or similar) mutates data behind this screen.
+  }, [groupId, bump]);
   useEffect(reload, [reload]);
 
   const myNet = balances?.members.find((m) => m.user_id === me?.id)?.net_paise ?? 0;

@@ -6,7 +6,9 @@ request body — the ``_actor``/``_with_actor`` helpers enforce that.
 """
 
 from datetime import datetime, timezone
+from urllib.parse import quote
 
+from django.http import HttpResponse
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -14,6 +16,7 @@ from rest_framework.response import Response
 from . import services
 from .ai import parse_expense, categorize
 from .exceptions import bad_request, not_found
+from .exports import build_group_xlsx, XLSX_MIME
 from .validators import (
     validate_create_expense,
     validate_create_settlement,
@@ -189,6 +192,20 @@ def personal_balances(request):
 def group_turn(request, pk: int):
     services.require_group_member(pk, _actor(request), allow_archived=True)
     return Response(services.whose_turn(pk))
+
+
+@api_view(["GET"])
+def group_export(request, pk: int):
+    # Membership check lives in the builder (raises NOT_FOUND → 404 for
+    # outsiders). Returns a binary .xlsx, so a plain HttpResponse, not a DRF
+    # Response — Content-Disposition names the download.
+    content, filename = build_group_xlsx(pk, _actor(request))
+    resp = HttpResponse(content, content_type=XLSX_MIME)
+    resp["Content-Disposition"] = (
+        f"attachment; filename=\"{filename}\"; "
+        f"filename*=UTF-8''{quote(filename)}"
+    )
+    return resp
 
 
 # ── Settlements ──

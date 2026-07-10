@@ -132,6 +132,38 @@ function req<T>(path: string, opts: RequestInit = {}, idempotent = false): Promi
   return raw<T>(path, opts, idempotent, true);
 }
 
+// Binary download (e.g. .xlsx export). Can't reuse `raw` — that parses JSON and
+// an <a href> wouldn't carry the Bearer token. Mirrors the 401→refresh dance,
+// then streams the blob into a click-triggered download.
+async function download(path: string, fallbackName: string): Promise<void> {
+  const fire = () => {
+    const at = tokens.access();
+    return fetch(BASE + path, { headers: at ? { Authorization: `Bearer ${at}` } : {} });
+  };
+  let res = await fire();
+  if (res.status === 401 && tokens.refresh()) {
+    const fresh = await tryRefresh();
+    if (!fresh) { signalAuthExpired(); throw new AuthExpiredError(); }
+    res = await fire();
+  }
+  if (res.status === 401) { signalAuthExpired(); throw new AuthExpiredError(); }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const code = (body as ApiErr)?.error?.code ?? `HTTP_${res.status}`;
+    throw new ApiError(code, res.status, (body as ApiErr)?.error?.message);
+  }
+  const blob = await res.blob();
+  const cd = res.headers.get('Content-Disposition') ?? '';
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(cd)?.[1];
+  const plain = /filename="?([^";]+)"?/i.exec(cd)?.[1];
+  const name = star ? decodeURIComponent(star) : plain ?? fallbackName;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export const apiClient = {
   // Auth
   requestOtp: (phone: string) => req<OtpRequestResult>('/auth/request-otp', { method: 'POST', body: JSON.stringify({ phone }) }),
@@ -158,6 +190,7 @@ export const apiClient = {
   restoreGroup: (id: number) => req<Group>(`/groups/${id}/restore`, { method: 'POST' }),
   addMember: (gid: number, user_id: number) => req<Group>(`/groups/${gid}/members`, { method: 'POST', body: JSON.stringify({ user_id }) }),
   removeMember: (gid: number, uid: number) => req<Group>(`/groups/${gid}/members/${uid}`, { method: 'DELETE' }),
+  exportGroup: (gid: number) => download(`/groups/${gid}/export`, `group-${gid}.xlsx`),
 
   // Expenses
   expenses: (gid: number) => req<Expense[]>(`/groups/${gid}/expenses`),

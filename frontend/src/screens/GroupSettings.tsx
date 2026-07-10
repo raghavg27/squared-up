@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { apiClient, ApiError, type Balances, type Group } from '../api.js';
 import { useStore } from '../store.js';
+import { useToast } from '../toast.js';
 import { Avatar, Icon, groupTypeStyle } from '../ui.js';
 
 export function GroupSettings() {
@@ -9,11 +10,13 @@ export function GroupSettings() {
   const gid = Number(id);
   const nav = useNavigate();
   const { me, name, reloadGroups } = useStore();
+  const { showToast } = useToast();
   const [group, setGroup] = useState<Group | null>(null);
   const [balances, setBalances] = useState<Balances | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
 
   const archived = !!group?.archived_at;
   const isOwner = !!me && group?.created_by === me.id;
@@ -48,6 +51,14 @@ export function GroupSettings() {
     try { const g = await apiClient.restoreGroup(gid); setGroup(g); reloadGroups(); }
     catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not restore'); }
     finally { setArchiveBusy(false); }
+  }
+
+  async function exportXlsx() {
+    if (exportBusy) return;
+    setExportBusy(true); setErr(null);
+    try { await apiClient.exportGroup(gid); showToast('Spreadsheet downloaded'); }
+    catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not export'); }
+    finally { setExportBusy(false); }
   }
 
   const st = groupTypeStyle(group?.type ?? 'other');
@@ -118,6 +129,22 @@ export function GroupSettings() {
             })}
           </div>
           {!archived && <p className="font-caption text-caption text-neutral-600">A member can only be removed once their balance is squared up.</p>}
+        </section>
+
+        {/* Export — any member, archived groups included (read-only history). */}
+        <section className="flex flex-col gap-2 mt-2">
+          <h3 className="font-heading text-[17px] font-bold text-ink">Export</h3>
+          <button
+            onClick={exportXlsx}
+            disabled={exportBusy}
+            className="w-full h-12 rounded-button bg-surface-container-lowest border border-neutral-300 text-ink font-heading text-[15px] font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50"
+          >
+            <Icon name={exportBusy ? 'hourglass_empty' : 'table_view'} style={{ fontSize: 20 }} />
+            {exportBusy ? 'Preparing…' : 'Export to Excel (.xlsx)'}
+          </button>
+          <p className="font-caption text-caption text-neutral-600">
+            Downloads every expense and settlement as a spreadsheet, with a per-member balance column and a total row.
+          </p>
         </section>
 
         {/* Archive / restore — owner only. Archiving is a reversible soft delete. */}

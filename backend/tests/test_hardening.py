@@ -141,6 +141,42 @@ def test_round_robin_advances_and_tracks_membership(client):
     assert c not in Group.objects.get(id=gid).rotation_rr_order
 
 
+def test_balanced_turn_follows_who_is_behind(client):
+    # Regression: the frontend used to hardcode is_rotation=false on every add,
+    # so no expense ever counted toward the rotation. With all rotation_nets at 0
+    # the balanced tie-break fell to the lowest user_id — the creator/admin — so
+    # "Turn to Pay" was permanently stuck on the admin. Once real rotation
+    # expenses land, the turn must track whoever is most behind (§9.3).
+    a, b, c = _mk_user("A"), _mk_user("B"), _mk_user("C")  # a = creator, lowest id
+    _as(client, a)
+    gid = client.post(
+        "/api/v1/groups",
+        {"name": "Flat", "member_ids": [b, c], "rotation_enabled": True, "rotation_mode": "balanced"},
+        format="json",
+    ).data["id"]
+    everyone = sorted([a, b, c])
+
+    def turn():
+        return client.get(f"/api/v1/groups/{gid}/turn").data["next_payer"]["user_id"]
+
+    # No rotation expenses yet → all nets 0 → tie-break lands on the admin.
+    assert turn() == a
+
+    # Admin pays the whole bill (equal, all members) → admin is now ahead.
+    body = _expense_body(gid, a, everyone)
+    body["is_rotation"] = True
+    assert _post_expense(client, body).status_code == 201
+    t1 = turn()
+    assert t1 != a          # no longer stuck on the admin
+    assert t1 == b          # b, c are behind equally; tie-break user_id ASC → b
+
+    # b pays next → c is now the only one still behind.
+    body2 = _expense_body(gid, b, everyone)
+    body2["is_rotation"] = True
+    assert _post_expense(client, body2).status_code == 201
+    assert turn() == c
+
+
 def test_search_does_not_enumerate_strangers(client):
     a = _mk_user("Aarav")
     _mk_user("Balaji Stranger", phone="+919777123456")

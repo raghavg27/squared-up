@@ -27,6 +27,7 @@ urlpatterns = [
     path("groups/<int:pk>/expenses", views.group_expenses),
     path("groups/<int:pk>/balances", views.group_balances),
     path("groups/<int:pk>/turn", views.group_turn),
+    path("groups/<int:pk>/export", views.group_export),  # GET .xlsx spreadsheet
 
     # ── Expenses ──
     path("expenses", views.expenses_create),  # POST

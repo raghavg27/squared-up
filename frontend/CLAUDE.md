@@ -18,7 +18,10 @@ library — one context store. No frontend test suite: verify with
 | `share.ts` | `shareText()` — Web Share API with clipboard fallback. |
 | `invite.ts` | `inviteLink()`/`shareInvite()` — build + share the `/login?invite=…&phone=/&email=/&name=` join deep-link; invitee dedupes onto the placeholder on sign-in. |
 | `index.css` | Tailwind v4 `@theme` tokens (colors, radii) + animation classes (`route-fade`, `sheet-up`, `pop-in`, `stagger`) + reduced-motion opt-out. |
-| `AddExpense.tsx` | Add-expense flow (group and personal) — top-level, not in screens/. |
+| `AddExpense.tsx` | Add-expense sheet (group and personal) — NL-parse-first, saves with an Undo toast. Top-level, not in screens/. |
+| `ExpenseForm.tsx` | Shared expense form: `useExpenseForm()` state/money-math hook + `ExpenseFormFields` (amount, description, date chip, collapsible payer/split/participants). Used by `AddExpense` and `EditExpense`. |
+| `toast.tsx` | `ToastProvider` + `useToast()` — global bottom toast with optional action (e.g. Undo). Mounted in `main.tsx`. |
+| `dataEvents.ts` | `emitDataChanged()` / `useDataChanged()` — window event telling screens to refetch after out-of-band mutations (e.g. Undo). |
 
 ## `src/screens/` — route → screen
 

@@ -5,6 +5,7 @@ import { useStore } from '../store.js';
 import { rupees } from '../format.js';
 import { AppHeader, Avatar, Icon, categoryFor, groupTypeStyle, useCountUp } from '../ui.js';
 import { shareText } from '../share.js';
+import { useDataChanged } from '../dataEvents.js';
 
 export function Home() {
   const { me, groups, name } = useStore();
@@ -14,6 +15,7 @@ export function Home() {
   const [personalExp, setPersonalExp] = useState<Expense[]>([]);
   const [expenses, setExpenses] = useState<(Expense & { _group: string })[] | null>(null);
 
+  const bump = useDataChanged(); // refetch when an Undo toast mutates data behind this screen
   useEffect(() => {
     if (!me) return;
     let cancelled = false;
@@ -45,7 +47,7 @@ export function Home() {
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [me, groups]);
+  }, [me, groups, bump]);
 
   // Friend cards mirror group cards: one per person I've split with outside a
   // group, ordered by how much is outstanding. Net + they owe me, − I owe.
