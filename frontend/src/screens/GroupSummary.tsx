@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { apiClient, type Balances, type Expense, type Group } from '../api.js';
 import { useStore } from '../store.js';
 import { rupees, rupees0 } from '../format.js';
-import { Avatar, Icon, categoryFor } from '../ui.js';
+import { Avatar, Icon, categoryStyle } from '../ui.js';
 
 export function GroupSummary() {
   const { id } = useParams();
@@ -29,7 +29,7 @@ export function GroupSummary() {
     const map = new Map<string, { label: string; icon: string; tint: string; fg: string; bar: string; total: number }>();
     let grand = 0;
     for (const e of expenses) {
-      const c = categoryFor(e.description);
+      const c = categoryStyle(e.category, e.description);
       grand += e.amount_paise;
       const cur = map.get(c.label) ?? { ...c, total: 0 };
       cur.total += e.amount_paise;

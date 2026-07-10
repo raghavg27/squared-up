@@ -12,6 +12,7 @@ from django.db import IntegrityError, transaction
 from domain import (
     DomainError,
     compute_shares,
+    allocate_items,
     compute_nets,
     assert_balanced,
     simplify,
@@ -22,11 +23,14 @@ from domain import (
     build_upi_intent,
 )
 
+from .ai import categorize
+from .expense_items import split_from_items, persist_items, items_of
 from .models import (
     User,
     Group,
     GroupMember,
     Expense,
+    ExpenseItem,
     ExpenseShare,
     Settlement,
     ActivityEvent,
@@ -467,12 +471,14 @@ def _expense_to_response(e: Expense, shares: list[dict]) -> dict:
         "description": e.description,
         "amount_paise": e.amount_paise,
         "currency": e.currency,
+        "category": e.category_label,
         "expense_date": e.expense_date.isoformat() if not isinstance(e.expense_date, str) else e.expense_date,
         "is_rotation": e.is_rotation,
         "created_by": e.created_by_id,
         "shares": [
             {**s, "net_paise": s["paid_paise"] - s["owed_paise"]} for s in shares
         ],
+        "items": items_of(e) if e.pk else [],
         "created_at": _iso(e.created_at),
     }
 
@@ -485,6 +491,12 @@ def create_expense(data: dict, idempotency_key: str) -> tuple[int, dict]:
 
     try:
         with transaction.atomic():
+            # Itemized bill: derive the exact per-person split from the line
+            # items (money math in domain.itemize) before the normal flow runs.
+            items = data.get("items")
+            if items:
+                data["split"] = split_from_items(data["amount_paise"], items)
+
             group_id = data["group_id"]
             everyone = {p["user_id"] for p in data["payers"]} | set(data["split"]["participants"])
 
@@ -535,6 +547,7 @@ def create_expense(data: dict, idempotency_key: str) -> tuple[int, dict]:
                 amount_paise=data["amount_paise"],
                 currency=data["currency"],
                 category_id=data["category_id"],
+                category_label=data.get("category") or categorize(data["description"]),
                 expense_date=data["expense_date"],
                 source=data["source"],
                 is_rotation=data["is_rotation"],
@@ -552,6 +565,8 @@ def create_expense(data: dict, idempotency_key: str) -> tuple[int, dict]:
                     for s in shares
                 ]
             )
+            if items:
+                persist_items(e.id, items)
             log_activity(
                 data["created_by"],
                 "expense.created",
@@ -595,7 +610,7 @@ def list_group_expenses(group_id: int) -> list[dict]:
     qs = (
         Expense.objects.filter(group_id=group_id, deleted_at__isnull=True)
         .order_by("-id")
-        .prefetch_related("shares")
+        .prefetch_related("shares", "items")
     )
     return [_expense_to_response(e, _shares_of(e)) for e in qs]
 
@@ -608,7 +623,7 @@ def list_personal_expenses(user_id: int, other_id: int | None = None) -> list[di
     qs = (
         Expense.objects.filter(id__in=list(mine), group__isnull=True, deleted_at__isnull=True)
         .order_by("-id")
-        .prefetch_related("shares")
+        .prefetch_related("shares", "items")
     )
     out = []
     for e in qs:
@@ -639,6 +654,10 @@ def update_expense(expense_id: int, actor: int, data: dict) -> dict:
         elif e.created_by_id != actor:
             raise DomainError("FORBIDDEN", "only the creator can edit this expense")
 
+        items = data.get("items")
+        if items:
+            data["split"] = split_from_items(data["amount_paise"], items)
+
         everyone = {p["user_id"] for p in data["payers"]} | set(data["split"]["participants"])
         if group_id is not None:
             for u in everyone:
@@ -667,14 +686,18 @@ def update_expense(expense_id: int, actor: int, data: dict) -> dict:
         e.description = data["description"]
         e.amount_paise = data["amount_paise"]
         e.currency = data.get("currency", e.currency)
+        e.category_label = data.get("category") or categorize(data["description"])
         if data.get("expense_date"):
             e.expense_date = data["expense_date"]
-        e.save(update_fields=["description", "amount_paise", "currency", "expense_date", "updated_at"])
+        e.save(update_fields=["description", "amount_paise", "currency", "category_label", "expense_date", "updated_at"])
 
         e.shares.all().delete()
         ExpenseShare.objects.bulk_create(
             [ExpenseShare(expense=e, user_id=s["user_id"], paid_paise=s["paid_paise"], owed_paise=s["owed_paise"]) for s in shares]
         )
+        # Items are all-or-nothing per edit: an itemized edit replaces the lines,
+        # a plain edit clears them so shares and items never disagree.
+        persist_items(e.id, items or [])
         log_activity(actor, "expense.updated", f"expense:{e.id}", {"group_id": group_id, "description": data["description"], "amount_paise": data["amount_paise"], "participants": sorted({s["user_id"] for s in shares})})
         return _expense_to_response(e, shares)
 

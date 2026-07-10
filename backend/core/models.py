@@ -128,6 +128,10 @@ class Expense(models.Model):
     amount_paise = models.BigIntegerField()
     currency = models.CharField(max_length=3, default="INR")
     category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True)
+    # Canonical category name ("Food"/"Transport"/… — see core.categories.CATEGORIES).
+    # This is the one used for analytics; the legacy Category FK above is unused.
+    # Auto-filled from the description at create time when the client omits it.
+    category_label = models.TextField(null=True, blank=True)
     expense_date = models.DateField()
     source = models.CharField(max_length=6, choices=SOURCE_CHOICES, default="manual")
     is_rotation = models.BooleanField(default=False)
@@ -155,6 +159,23 @@ class ExpenseShare(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["expense", "user"], name="uq_expense_share"),
         ]
+
+
+class ExpenseItem(models.Model):
+    """A single line on an itemized bill (receipt split). Each item is split
+    equally among the users in ``participant_ids``; the expense's untagged
+    remainder (tax/tip) is split among the whole bill (see domain.itemize)."""
+
+    expense = models.ForeignKey(Expense, on_delete=models.CASCADE, related_name="items")
+    name = models.TextField()
+    amount_paise = models.BigIntegerField()
+    quantity = models.IntegerField(default=1)
+    participant_ids = models.JSONField(default=list)  # list[int]
+    position = models.IntegerField(default=0)
+
+    class Meta:
+        db_table = "expense_items"
+        indexes = [models.Index(fields=["expense", "position"], name="idx_expense_items")]
 
 
 class Settlement(models.Model):

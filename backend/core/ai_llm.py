@@ -19,7 +19,7 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-CATEGORIES = ["Food", "Travel", "Rent", "Groceries", "Entertainment", "Utilities", "Other"]
+from .categories import CATEGORIES  # noqa: E402 — canonical list shared with rules + validator
 
 _GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 _TIMEOUT_SECONDS = 12

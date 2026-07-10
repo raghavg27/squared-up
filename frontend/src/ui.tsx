@@ -40,33 +40,50 @@ export function Icon({ name, fill, className, style }: { name: string; fill?: bo
 }
 
 // ── Category → icon + tinted swatch (Warm Finance lifestyle icons) ─────
-type CatStyle = { label: string; icon: string; tint: string; fg: string; bar: string };
-const CAT = {
-  food: { label: 'Food & Dining', icon: 'restaurant', tint: 'bg-secondary-container', fg: 'text-secondary', bar: 'bg-secondary' },
-  coffee: { label: 'Coffee & Chai', icon: 'local_cafe', tint: 'bg-amber/10', fg: 'text-amber', bar: 'bg-amber' },
-  groceries: { label: 'Groceries', icon: 'shopping_bag', tint: 'bg-sky/10', fg: 'text-sky', bar: 'bg-sky' },
-  shopping: { label: 'Shopping', icon: 'shopping_bag', tint: 'bg-sky/10', fg: 'text-sky', bar: 'bg-sky' },
-  entertainment: { label: 'Entertainment', icon: 'movie', tint: 'bg-plum/10', fg: 'text-plum', bar: 'bg-plum' },
-  rent: { label: 'Rent & Home', icon: 'home', tint: 'bg-secondary-container', fg: 'text-secondary', bar: 'bg-secondary' },
-  home: { label: 'Home', icon: 'home', tint: 'bg-secondary-container', fg: 'text-secondary', bar: 'bg-secondary' },
-  utilities: { label: 'Utilities', icon: 'bolt', tint: 'bg-surface-container-high', fg: 'text-ink', bar: 'bg-neutral-600' },
-  transport: { label: 'Transport', icon: 'directions_car', tint: 'bg-sky/10', fg: 'text-sky', bar: 'bg-sky' },
-  travel: { label: 'Travel', icon: 'flight_takeoff', tint: 'bg-primary/10', fg: 'text-primary', bar: 'bg-primary' },
-  settle: { label: 'Settlement', icon: 'handshake', tint: 'bg-teal/15', fg: 'text-tertiary', bar: 'bg-teal' },
-} satisfies Record<string, CatStyle>;
+// Keys are the canonical backend labels (core/categories.py CATEGORIES),
+// plus 'Settlement' which only exists as a display style.
+export type CatStyle = { label: string; icon: string; tint: string; fg: string; bar: string };
+const CAT: Record<string, CatStyle> = {
+  Food: { label: 'Food & Dining', icon: 'restaurant', tint: 'bg-secondary-container', fg: 'text-secondary', bar: 'bg-secondary' },
+  Groceries: { label: 'Groceries', icon: 'shopping_cart', tint: 'bg-sky/10', fg: 'text-sky', bar: 'bg-sky' },
+  Transport: { label: 'Transport', icon: 'directions_car', tint: 'bg-sky/10', fg: 'text-sky', bar: 'bg-sky' },
+  Travel: { label: 'Travel', icon: 'flight_takeoff', tint: 'bg-primary/10', fg: 'text-primary', bar: 'bg-primary' },
+  Rent: { label: 'Rent & Home', icon: 'home', tint: 'bg-secondary-container', fg: 'text-secondary', bar: 'bg-secondary' },
+  Utilities: { label: 'Utilities', icon: 'bolt', tint: 'bg-surface-container-high', fg: 'text-ink', bar: 'bg-neutral-600' },
+  Health: { label: 'Health', icon: 'medical_services', tint: 'bg-teal/15', fg: 'text-tertiary', bar: 'bg-teal' },
+  Entertainment: { label: 'Entertainment', icon: 'movie', tint: 'bg-plum/10', fg: 'text-plum', bar: 'bg-plum' },
+  Shopping: { label: 'Shopping', icon: 'shopping_bag', tint: 'bg-amber/10', fg: 'text-amber', bar: 'bg-amber' },
+  Other: { label: 'Other', icon: 'category', tint: 'bg-surface-container-high', fg: 'text-secondary', bar: 'bg-neutral-600' },
+  Settlement: { label: 'Settlement', icon: 'handshake', tint: 'bg-teal/15', fg: 'text-tertiary', bar: 'bg-teal' },
+};
 
-// Pick a category style from a free-text description (best-effort keyword match).
-export function categoryFor(text: string): CatStyle {
+// Guess a canonical category from free text — a trimmed mirror of the backend
+// rules (core/categories.py). Display-side fallback only; the server label wins.
+export function guessCategory(text: string): string {
   const t = text.toLowerCase();
-  if (/coffee|chai|cafe|starbucks|tea/.test(t)) return CAT.coffee;
-  if (/rent|flat|apartment/.test(t)) return CAT.rent;
-  if (/groc|dmart|super|vegetable|milk/.test(t)) return CAT.groceries;
-  if (/movie|ticket|netflix|cinema|game/.test(t)) return CAT.entertainment;
-  if (/electric|bill|water|gas|wifi|internet/.test(t)) return CAT.utilities;
-  if (/auto|uber|ola|cab|taxi|petrol|fuel|bus|train|flight|trip|goa/.test(t)) return CAT.travel;
-  if (/dinner|lunch|breakfast|food|restaurant|pizza|social|toit/.test(t)) return CAT.food;
-  if (/settl/.test(t)) return CAT.settle;
-  return CAT.food;
+  if (/settl/.test(t)) return 'Settlement';
+  if (/dinner|lunch|breakfast|food|restaurant|pizza|burger|biryani|chai|coffee|cafe|tea|swiggy|zomato|dhaba|toit/.test(t)) return 'Food';
+  if (/groc|sabzi|vegetable|fruit|kirana|dmart|bigbasket|blinkit|zepto|milk/.test(t)) return 'Groceries';
+  if (/auto|uber|ola|cab|taxi|metro|bus|rickshaw|rapido|petrol|diesel|fuel|parking|toll/.test(t)) return 'Transport';
+  if (/flight|train|hotel|hostel|airbnb|oyo|trip|travel|vacation|holiday|goa/.test(t)) return 'Travel';
+  if (/rent|kiraya|flat|apartment|maintenance|deposit/.test(t)) return 'Rent';
+  if (/electric|water|wifi|internet|broadband|gas|bill|recharge|dth/.test(t)) return 'Utilities';
+  if (/medicin|medical|pharma|chemist|doctor|hospital|clinic|dentist|gym/.test(t)) return 'Health';
+  if (/movie|cinema|netflix|hotstar|spotify|bookmyshow|game|concert|party|ipl/.test(t)) return 'Entertainment';
+  if (/shop|amazon|flipkart|myntra|mall|clothes|shoes|laptop|phone|mobile|electronics|furniture|gift/.test(t)) return 'Shopping';
+  return 'Other';
+}
+
+// Style for an expense: the stored server label when present (the user may have
+// corrected it), keyword guess from the description otherwise. Never defaults
+// to Food — an unknown expense is honestly 'Other'.
+export function categoryStyle(label: string | null | undefined, description = ''): CatStyle {
+  return (label && CAT[label]) || CAT[guessCategory(description)] || CAT.Other!;
+}
+
+// Legacy alias for description-only call sites (settlement rows etc.).
+export function categoryFor(text: string): CatStyle {
+  return categoryStyle(undefined, text);
 }
 
 // Group-type → icon + swatch, for group cards.
@@ -215,6 +232,7 @@ export function AppHeader({ action }: { action?: React.ReactNode }) {
 const TABS = [
   { to: '/', icon: 'home', label: 'Home', end: true },
   { to: '/groups', icon: 'group', label: 'Groups', end: false },
+  { to: '/insights', icon: 'monitoring', label: 'Insights', end: false },
   { to: '/activity', icon: 'receipt_long', label: 'Activity', end: false },
   { to: '/profile', icon: 'person', label: 'Profile', end: false },
 ];

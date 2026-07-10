@@ -14,6 +14,7 @@ math lives in `domain/` and must never import Django.
 | `money.py` | `allocate()` — largest-remainder paise allocation (Spec §5.1) |
 | `split.py` | `compute_shares()` — all 5 split types, multiple payers |
 | `balance.py` | `compute_nets()`, `assert_balanced()` — per-user nets from shares |
+| `itemize.py` | `allocate_items()` — itemized-bill split: per-line equal split + shared remainder (Spec §5 extension) |
 | `simplify.py` | `simplify()` — greedy debt-graph reduction |
 | `turn.py` | Turn to Pay (§9): balanced + round-robin next-payer |
 | `upi.py` | `build_upi_intent()` — `upi://pay?...` string; `paise_to_rupee_string()` |
@@ -35,8 +36,12 @@ Everything is re-exported from `domain/__init__.py`.
 | `exceptions.py` | §11 error envelope: exception handler mapping codes → HTTP status. |
 | `middleware.py` | Request plumbing (see file). |
 | `sms.py` | OTP delivery seam: `console` (logs + returns `dev_code`) or `twilio` (REST, no SDK). Selected by `SMS_PROVIDER`. |
-| `ai.py` | NL expense parse + auto-categorize (draft only — never writes). `parse_expense()` = Gemini first (via `ai_llm.py`), deterministic rules fallback. Both emit one contract; names always resolved against the caller's member list. |
+| `categories.py` | Canonical expense categories: `CATEGORIES` (the 10-item enum), `normalize_category()` (client text → canonical or None), `categorize()` (keyword rules). Single source of truth — LLM enums, validator, and analytics all use it; mirrored in frontend `api.ts` `EXPENSE_CATEGORIES`. |
+| `ai.py` | NL expense parse (draft only — never writes). `parse_expense()` = Gemini first (via `ai_llm.py`), deterministic rules fallback. Both emit one contract; names always resolved against the caller's member list. Re-exports `categorize` from `categories.py`. |
 | `ai_llm.py` | Gemini structured-output client for NL parse. All money math (rupee→paise, per-head, exact-share balancing) done server-side; any failure returns `None` → rules fallback. Needs `GEMINI_API_KEY`. |
+| `ai_itemize.py` | Receipt itemization (`/ai/itemize`): Gemini **vision** (photo) or text → draft line items; deterministic line parser fallback. Draft only; money in paise. |
+| `expense_items.py` | Itemized-bill helpers: `split_from_items()` (items → `exact` split via `domain.itemize`), `persist_items()`, `items_of()`. Keeps item logic out of `services.py`. |
+| `analytics.py` | `spending_summary()` — the caller's own `owed` share aggregated by category / month / group for the Insights screen (`/analytics/summary`). Read-only. |
 | `exports.py` | `build_group_xlsx(group_id, actor)` → `(bytes, filename)`. Splitwise-style ledger: expense + confirmed-settlement rows, per-member net columns, `Total balance` footer reconciling to `group_balances` (§6). Paise→rupees only here. Needs `openpyxl`. |
 | `urls.py` | Full route table with comments — **read this first to find an endpoint**. |
 | `management/commands/seed.py` | Demo data (`python manage.py seed`, or `SEED_DEMO=1` in Docker). |
@@ -52,6 +57,9 @@ Everything is re-exported from `domain/__init__.py`.
 | `test_hardening.py` | Stress-test regressions: OTP attempt cap, idempotency scoping, archived read-only, round-robin advance, search privacy, unfriend |
 | `test_ai_parse.py` | NL parse: Gemini normalization (mocked, no network), rules fallback, /ai/parse endpoint contract |
 | `test_export.py` | Group .xlsx export: reconciliation to balances, outsider → 404 |
+| `test_itemize.py` | `domain.itemize.allocate_items` vectors — pure, no DB |
+| `test_insights.py` | Itemized expenses (shares derived + persisted), `/analytics/summary` breakdowns + group-scope 404, `/ai/itemize` rules path |
+| `test_categories.py` | Category keyword rules, `normalize_category` aliases, create/edit API round-trip (user's pick wins, garbage falls back to auto) |
 
 `conftest.py` wires Django settings for pytest.
 

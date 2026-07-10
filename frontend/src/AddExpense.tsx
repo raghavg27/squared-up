@@ -5,6 +5,7 @@ import { useStore } from './store.js';
 import { Icon } from './ui.js';
 import { rupees } from './format.js';
 import { ExpenseFormFields, useExpenseForm } from './ExpenseForm.js';
+import { ItemizeEditor, itemPaise, validateItems, type ItemRow } from './ItemizeEditor.js';
 import { useToast } from './toast.js';
 import { emitDataChanged } from './dataEvents.js';
 
@@ -25,6 +26,8 @@ export function AddExpense() {
 
   const form = useExpenseForm();
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [mode, setMode] = useState<'split' | 'itemize'>('split');
+  const [items, setItems] = useState<ItemRow[]>([]);
   const [nl, setNl] = useState('');
   const [nlBusy, setNlBusy] = useState(false);
   const [parsed, setParsed] = useState(false);
@@ -57,6 +60,7 @@ export function AddExpense() {
   // split a rotation turn is defined as (§9.2): single payer, equal, every active
   // rotation member. Subset / unequal / uneven splits stay regular expenses.
   const isRotation =
+    mode === 'split' &&
     !!group?.rotation_enabled &&
     form.splitType === 'equal' &&
     members.length > 0 &&
@@ -70,6 +74,7 @@ export function AddExpense() {
       const d = await apiClient.parse(nl, members.map((mid) => name(mid)));
       const byName = (n: string) => members.find((mid) => name(mid).toLowerCase() === n.toLowerCase());
       form.setDesc(d.description);
+      form.setCategory(d.category);
       if (d.amount_paise !== null) form.setAmount((d.amount_paise / 100).toString());
       const payerId = d.payer_name != null ? byName(d.payer_name) : undefined;
       if (payerId !== undefined) form.setPayer(payerId);
@@ -95,24 +100,42 @@ export function AddExpense() {
     finally { setNlBusy(false); }
   }
 
+  // In itemize mode the per-item editor owns the split: validate the total +
+  // items + payer instead of the equal/exact split fields.
+  function validateForSave(): string | null {
+    if (mode === 'split') return form.validate();
+    if (!(form.amountPaise > 0)) return 'Enter the bill total';
+    if (form.payer === null) return 'Pick who paid';
+    return validateItems(items, form.amountPaise);
+  }
+
   async function save() {
     if (busy || !me) return;
     setErr(null);
-    const problem = form.validate();
+    const problem = validateForSave();
     if (problem) return setErr(problem);
     setBusy(true);
     try {
+      const rows = items.filter((it) => it.name.trim() || itemPaise(it) > 0);
+      const itemPayload = mode === 'itemize'
+        ? rows.map((it) => ({ name: it.name.trim() || 'Item', amount_paise: itemPaise(it), participant_ids: it.participants }))
+        : undefined;
+      // Server derives the split from items; this placeholder just satisfies
+      // the required `split` field and is overridden server-side.
+      const unionParticipants = Array.from(new Set(rows.flatMap((it) => it.participants)));
       const created = await apiClient.createExpense({
         group_id: personal ? null : groupId,
         description: form.desc.trim() || nl.trim() || 'Expense',
         amount_paise: form.amountPaise,
         currency: 'INR',
         expense_date: form.date,
+        category: form.category,
         source: nl ? 'nl' : 'manual',
         is_rotation: isRotation,
         created_by: me.id,
         payers: [{ user_id: form.payer, paid_paise: form.amountPaise }],
-        split: form.buildSplit(),
+        split: mode === 'itemize' ? { type: 'equal', participants: unionParticipants } : form.buildSplit(),
+        ...(itemPayload ? { items: itemPayload } : {}),
       });
       if (navigator.vibrate) navigator.vibrate(20);
       showToast(`Added ${rupees(form.amountPaise)} — ${form.desc.trim() || 'Expense'}`, {
@@ -163,7 +186,39 @@ export function AddExpense() {
             <p className="font-caption text-caption text-secondary text-center mt-2">Filled in below — check it, then add.</p>
           )}
 
-          <ExpenseFormFields form={form} members={members} open={detailsOpen} onToggle={() => setDetailsOpen((o) => !o)} />
+          {/* Split evenly vs. itemize the bill (scan a receipt) */}
+          <div className="bg-neutral-100 rounded-button p-1 flex mt-5">
+            {(['split', 'itemize'] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                className={`flex-1 h-10 rounded-[9px] font-body text-[14px] font-semibold flex items-center justify-center gap-1.5 transition-colors ${mode === m ? 'bg-surface-container-lowest text-primary card-shadow' : 'text-secondary'}`}
+              >
+                <Icon name={m === 'split' ? 'call_split' : 'receipt_long'} style={{ fontSize: 18 }} />
+                {m === 'split' ? 'Split' : 'Itemize'}
+              </button>
+            ))}
+          </div>
+
+          <ExpenseFormFields
+            form={form}
+            members={members}
+            open={detailsOpen || mode === 'itemize'}
+            onToggle={() => setDetailsOpen((o) => !o)}
+            itemize={mode === 'itemize'}
+          />
+
+          {mode === 'itemize' && (
+            <ItemizeEditor
+              members={members}
+              items={items}
+              onChange={setItems}
+              onScanned={(total, cat) => {
+                if (total) form.setAmount((total / 100).toString());
+                if (cat) form.setCategory(cat);
+              }}
+            />
+          )}
 
           {err && <p className="text-danger font-body text-[13px] mt-4 text-center">{err}</p>}
         </div>

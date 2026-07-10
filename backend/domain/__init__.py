@@ -6,6 +6,7 @@ in isolation and reused. Money is integer paise (₹1 = 100 paise); no floats.
 
 from .errors import DomainError, DomainErrorCode
 from .money import allocate
+from .itemize import allocate_items
 from .split import compute_shares
 from .balance import compute_nets, assert_balanced
 from .simplify import simplify
@@ -22,6 +23,7 @@ __all__ = [
     "DomainError",
     "DomainErrorCode",
     "allocate",
+    "allocate_items",
     "compute_shares",
     "compute_nets",
     "assert_balanced",

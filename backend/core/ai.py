@@ -18,15 +18,7 @@ user ids safely.
 import re
 
 from .ai_llm import _match_member, parse_with_llm
-
-CATEGORY_RULES = [
-    (re.compile(r"\b(dinner|lunch|breakfast|food|restaurant|chai|coffee|cafe|khana|biryani|pizza|swiggy|zomato)\b", re.I), "Food"),
-    (re.compile(r"\b(auto|uber|ola|cab|taxi|metro|bus|train|flights?|petrol|fuel|travel|trip|rapido)\b", re.I), "Travel"),
-    (re.compile(r"\b(rent|kiraya|maintenance)\b", re.I), "Rent"),
-    (re.compile(r"\b(grocery|groceries|sabzi|vegetables|bigbasket|blinkit|zepto|milk|dudh)\b", re.I), "Groceries"),
-    (re.compile(r"\b(movie|cinema|netflix|game|concert|party|entertainment)\b", re.I), "Entertainment"),
-    (re.compile(r"\b(electricity|water|wifi|internet|gas|bill|recharge)\b", re.I), "Utilities"),
-]
+from .categories import categorize  # noqa: F401 — re-export; services + migration 0007 import it from here
 
 _MARKED_AMOUNT_RE = re.compile(r"(?:₹|rs\.?|inr)\s*(\d+(?:\.\d{1,2})?)(k?)\b", re.I)
 _AMOUNT_RE = re.compile(r"(?:₹|rs\.?|inr)?\s*(\d+(?:\.\d{1,2})?)(k?)\b", re.I)
@@ -44,14 +36,6 @@ _FILLER_RE = re.compile(
     re.I,
 )
 _STOP_NAMES = {"I", "Rs", "INR", "Split", "Paid", "Me", "Only"}
-
-
-def categorize(description: str) -> str:
-    """Silent auto-categorization (PRD §5.4). Rules first; default 'Other'."""
-    for regex, cat in CATEGORY_RULES:
-        if regex.search(description):
-            return cat
-    return "Other"
 
 
 def _rupee_value(match: re.Match) -> float:

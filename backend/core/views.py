@@ -15,6 +15,8 @@ from rest_framework.response import Response
 
 from . import services
 from .ai import parse_expense, categorize
+from .ai_itemize import itemize_bill
+from .analytics import spending_summary
 from .exceptions import bad_request, not_found
 from .exports import build_group_xlsx, XLSX_MIME
 from .validators import (
@@ -249,6 +251,44 @@ def ai_categorize(request):
     if not isinstance(description, str) or not description:
         raise bad_request("VALIDATION_ERROR", "description is required")
     return Response({"category": categorize(description)})
+
+
+@api_view(["POST"])
+def ai_itemize(request):
+    # Receipt photo (base64) and/or pasted bill text → draft line items. Draft
+    # only, like /ai/parse — the user assigns people and confirms in the form.
+    text = request.data.get("text", "") or ""
+    if not isinstance(text, str):
+        raise bad_request("VALIDATION_ERROR", "text must be a string")
+    if len(text) > 8000:
+        raise bad_request("VALIDATION_ERROR", "text too long (max 8000 chars)")
+    image_b64 = request.data.get("image_base64")
+    if image_b64 is not None and (not isinstance(image_b64, str) or len(image_b64) > 9_000_000):
+        raise bad_request("VALIDATION_ERROR", "image is missing or too large (max ~6MB)")
+    if not text.strip() and not image_b64:
+        raise bad_request("VALIDATION_ERROR", "text or image_base64 is required")
+    mime = request.data.get("mime")
+    return Response(itemize_bill(text=text, image_b64=image_b64, mime=mime))
+
+
+# ── Analytics / Insights ──
+@api_view(["GET"])
+def analytics_summary(request):
+    # Spending breakdowns for the caller. ?months=1..24, ?group_id scopes to one
+    # group (membership enforced → outsiders 404, like the other group routes).
+    try:
+        months = int(request.query_params.get("months", 6))
+    except (TypeError, ValueError):
+        months = 6
+    gid = request.query_params.get("group_id")
+    group_id = None
+    if gid:
+        try:
+            group_id = int(gid)
+        except ValueError:
+            raise bad_request("VALIDATION_ERROR", "group_id must be an integer")
+        services.require_group_member(group_id, _actor(request), allow_archived=True)
+    return Response(spending_summary(_actor(request), months=months, group_id=group_id))
 
 
 # ── Activity feed / notifications ──

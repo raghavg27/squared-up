@@ -17,7 +17,34 @@ export interface Group {
   created_by?: number; archived_at?: string | null;
 }
 export interface Share { user_id: number; paid_paise: number; owed_paise: number; net_paise: number }
-export interface Expense { id: number; description: string; amount_paise: number; is_rotation: boolean; shares: Share[]; created_at: string; group_id: number | null; expense_date?: string; created_by?: number }
+export interface ExpenseItem { id?: number; name: string; amount_paise: number; quantity?: number; participant_ids: number[] }
+export interface Expense {
+  id: number; description: string; amount_paise: number; is_rotation: boolean;
+  shares: Share[]; created_at: string; group_id: number | null; expense_date?: string;
+  created_by?: number; category?: string | null; items?: ExpenseItem[];
+}
+// Canonical expense categories — mirrors backend core/categories.py CATEGORIES;
+// keep the two lists in sync. The server never rejects a category: unknown text
+// falls back to auto-categorization, but pickers must only offer these.
+export const EXPENSE_CATEGORIES = [
+  'Food', 'Groceries', 'Transport', 'Travel', 'Rent',
+  'Utilities', 'Health', 'Entertainment', 'Shopping', 'Other',
+] as const;
+// Draft returned by POST /ai/itemize — receipt photo/text → line items (no people yet).
+export interface ItemizeDraft {
+  items: { name: string; amount_paise: number; quantity: number }[];
+  total_paise: number | null; category: string; merchant: string | null;
+  source: 'llm' | 'rules';
+}
+// GET /analytics/summary — all money is integer paise.
+export interface AnalyticsSummary {
+  scope: 'all' | 'group'; group_id: number | null; months: number; range_start: string;
+  totals: { spent_paise: number; paid_paise: number; net_paise: number; expense_count: number; avg_paise: number };
+  by_category: { category: string; amount_paise: number; count: number }[];
+  by_month: { month: string; label: string; amount_paise: number }[];
+  by_group: { group_id: number | null; name: string; amount_paise: number }[];
+  top_expenses: { id: number; description: string; category: string; amount_paise: number; your_share_paise: number; expense_date: string; group_id: number | null }[];
+}
 export interface Balances {
   group_id: number;
   members: { user_id: number; net_paise: number }[];
@@ -214,5 +241,11 @@ export const apiClient = {
   // AI + activity
   parse: (text: string, memberNames: string[]) =>
     req<NlDraft>('/ai/parse', { method: 'POST', body: JSON.stringify({ text, member_names: memberNames }) }),
+  itemize: (input: { text?: string; image_base64?: string; mime?: string }) =>
+    req<ItemizeDraft>('/ai/itemize', { method: 'POST', body: JSON.stringify(input) }),
   activity: () => req<ActivityEvent[]>('/activity'),
+
+  // Analytics / Insights
+  analytics: (months = 6, groupId?: number) =>
+    req<AnalyticsSummary>(`/analytics/summary?months=${months}${groupId ? `&group_id=${groupId}` : ''}`),
 };

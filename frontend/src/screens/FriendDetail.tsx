@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { apiClient, type Expense, type User } from '../api.js';
 import { useStore } from '../store.js';
 import { rupees } from '../format.js';
-import { Avatar, Icon, categoryFor } from '../ui.js';
+import { Avatar, Icon, categoryStyle } from '../ui.js';
 import { shareInvite } from '../invite.js';
 
 // Per-friend view of non-group ("personal") splits — the friend analog of
@@ -107,7 +107,7 @@ export function FriendDetail() {
         )}
         <div className={`bg-surface-container-lowest rounded-card border border-neutral-300 card-shadow divide-y divide-neutral-100 ${expenses === null ? 'hidden' : ''}`}>
           {(expenses ?? []).map((e) => {
-            const cat = categoryFor(e.description);
+            const cat = categoryStyle(e.category, e.description);
             const payer = e.shares.find((s) => s.paid_paise > 0);
             const iPaid = payer?.user_id === me?.id;
             const myShare = e.shares.find((s) => s.user_id === me?.id);

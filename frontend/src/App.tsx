@@ -16,6 +16,7 @@ import { AddMember } from './screens/AddMember.js';
 import { Friends } from './screens/Friends.js';
 import { FriendDetail } from './screens/FriendDetail.js';
 import { ActivityFeed } from './screens/ActivityFeed.js';
+import { Insights } from './screens/Insights.js';
 import { Profile } from './screens/Profile.js';
 import { EditProfile } from './screens/EditProfile.js';
 import { UpiAppSettings } from './screens/UpiApp.js';
@@ -27,7 +28,7 @@ import { AddTarget } from './screens/AddTarget.js';
 import { Privacy } from './screens/Privacy.js';
 import { Terms } from './screens/Terms.js';
 
-const TAB_PATHS = ['/', '/groups', '/activity', '/profile'];
+const TAB_PATHS = ['/', '/groups', '/insights', '/activity', '/profile'];
 const PUBLIC_PATHS = ['/login', '/otp'];
 
 export function App() {
@@ -87,6 +88,7 @@ export function App() {
         <Route path="/friends" element={<Friends />} />
         <Route path="/friends/:id" element={<FriendDetail />} />
         <Route path="/activity" element={<ActivityFeed />} />
+        <Route path="/insights" element={<Insights />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/profile/edit" element={<EditProfile />} />
         <Route path="/profile/upi-app" element={<UpiAppSettings />} />

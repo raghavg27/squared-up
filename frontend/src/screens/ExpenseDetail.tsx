@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { apiClient, ApiError, type Comment, type Expense } from '../api.js';
 import { useStore } from '../store.js';
 import { rupees } from '../format.js';
-import { Avatar, Icon, categoryFor, groupTypeStyle } from '../ui.js';
+import { Avatar, Icon, categoryStyle, groupTypeStyle } from '../ui.js';
 
 export function ExpenseDetail() {
   const { id } = useParams();
@@ -46,7 +46,7 @@ export function ExpenseDetail() {
     );
   }
 
-  const cat = categoryFor(exp.description);
+  const cat = categoryStyle(exp.category, exp.description);
   const payer = exp.shares.find((s) => s.paid_paise > 0);
   const grp = groups.find((g) => g.id === exp.group_id);
   const gName = groupName ?? grp?.name ?? 'Group';
@@ -143,6 +143,36 @@ export function ExpenseDetail() {
             })}
           </div>
         </Card>
+
+        {/* Itemized bill (receipt split) */}
+        {exp.items && exp.items.length > 0 && (() => {
+          const itemsSum = exp.items.reduce((s, it) => s + it.amount_paise, 0);
+          const remainder = exp.amount_paise - itemsSum;
+          const shortName = (uid: number) => (uid === me?.id ? 'You' : name(uid).split(' ')[0]);
+          return (
+            <Card icon="receipt" title="Itemized bill">
+              <div className="divide-y divide-neutral-100">
+                {exp.items.map((it, i) => (
+                  <div key={it.id ?? i} className="flex items-start justify-between py-2.5 gap-3">
+                    <div className="min-w-0">
+                      <span className="font-body text-[15px] text-ink">{it.quantity && it.quantity > 1 ? `${it.quantity}× ` : ''}{it.name}</span>
+                      <span className="block font-caption text-caption text-on-surface-variant truncate">
+                        {it.participant_ids.map(shortName).join(', ')}
+                      </span>
+                    </div>
+                    <span className="font-currency text-[15px] text-ink tnum shrink-0">{rupees(it.amount_paise)}</span>
+                  </div>
+                ))}
+                {remainder > 0 && (
+                  <div className="flex items-center justify-between py-2.5">
+                    <span className="font-body text-[15px] text-on-surface-variant">Tax & charges · shared</span>
+                    <span className="font-currency text-[15px] text-on-surface-variant tnum">{rupees(remainder)}</span>
+                  </div>
+                )}
+              </div>
+            </Card>
+          );
+        })()}
 
         {/* Comments */}
         <Card icon="chat_bubble" title="Comments">

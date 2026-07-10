@@ -18,7 +18,7 @@ export function EditExpense() {
   const [err, setErr] = useState<string | null>(null);
 
   const form = useExpenseForm();
-  const { setDesc, setAmount, setDate, setPayer, setParticipants, setSplitType, setPerUser } = form;
+  const { setDesc, setAmount, setDate, setCategory, setPayer, setParticipants, setSplitType, setPerUser } = form;
 
   useEffect(() => {
     apiClient.expense(expId).then((e) => {
@@ -26,6 +26,7 @@ export function EditExpense() {
       setDesc(e.description);
       setAmount((e.amount_paise / 100).toString());
       setDate(e.expense_date ?? e.created_at.slice(0, 10));
+      setCategory(e.category ?? undefined);
       setPayer(e.shares.find((s) => s.paid_paise > 0)?.user_id ?? me?.id ?? null);
       const owed = e.shares.filter((s) => s.owed_paise > 0);
       setParticipants(owed.map((s) => s.user_id));
@@ -42,7 +43,7 @@ export function EditExpense() {
       }
       if (e.group_id) apiClient.group(e.group_id).then(setGroup).catch(() => {});
     }).catch(() => setErr('Could not load expense'));
-  }, [expId, me, setDesc, setAmount, setDate, setPayer, setParticipants, setSplitType, setPerUser]);
+  }, [expId, me, setDesc, setAmount, setDate, setCategory, setPayer, setParticipants, setSplitType, setPerUser]);
 
   const members = group?.members ?? form.participants;
 
@@ -59,6 +60,7 @@ export function EditExpense() {
         amount_paise: form.amountPaise,
         currency: 'INR',
         expense_date: form.date,
+        category: form.category,
         payers: [{ user_id: form.payer, paid_paise: form.amountPaise }],
         split: form.buildSplit(),
       });

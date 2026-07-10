@@ -250,7 +250,7 @@ def test_rules_no_amount_low_confidence():
 
 def test_categorize_default():
     assert categorize("weird unknown thing") == "Other"
-    assert categorize("uber to airport") == "Travel"
+    assert categorize("uber to airport") == "Transport"
 
 
 # ── endpoint contract ──

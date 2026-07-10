@@ -107,6 +107,49 @@ class Command(BaseCommand):
             str(uuid.uuid4()),
         )
 
+        # A spread of dated expenses so the Insights charts have real trends and
+        # category variety out of the box (categories auto-filled from the text).
+        everyone = [aarav["id"], bhavna["id"], chetan["id"]]
+        spread = [
+            (home, "Dinner at Toit", 240000, "2026-03-05", aarav),
+            (home, "Uber to airport", 85000, "2026-03-27", bhavna),
+            (trip, "Flight tickets", 1800000, "2026-04-12", aarav),
+            (home, "BigBasket groceries", 320000, "2026-04-20", chetan),
+            (home, "Movie night", 96000, "2026-05-08", bhavna),
+            (home, "Electricity bill", 210000, "2026-05-22", aarav),
+            (trip, "Beach cafe coffee", 54000, "2026-06-10", chetan),
+            (home, "Petrol", 180000, "2026-07-02", bhavna),
+        ]
+        for group, desc, paise, when, payer in spread:
+            services.create_expense(
+                {
+                    "group_id": group["id"], "description": desc, "amount_paise": paise,
+                    "currency": "INR", "expense_date": when, "category_id": None,
+                    "source": "manual", "is_rotation": False, "created_by": payer["id"],
+                    "payers": [{"user_id": payer["id"], "paid_paise": paise}],
+                    "split": {"type": "equal", "participants": everyone},
+                },
+                str(uuid.uuid4()),
+            )
+
+        # One itemized bill (receipt split) to show off item-level assignment.
+        services.create_expense(
+            {
+                "group_id": trip["id"], "description": "Dinner — Fisherman's Wharf",
+                "amount_paise": 120000, "currency": "INR", "expense_date": "2026-07-06",
+                "category_id": None, "source": "manual", "is_rotation": False,
+                "created_by": aarav["id"],
+                "payers": [{"user_id": aarav["id"], "paid_paise": 120000}],
+                "split": {"type": "equal", "participants": everyone},  # overridden by items
+                "items": [
+                    {"name": "Prawn pizza", "amount_paise": 40000, "quantity": 1, "participant_ids": [aarav["id"]]},
+                    {"name": "Seafood pasta", "amount_paise": 35000, "quantity": 1, "participant_ids": [bhavna["id"]]},
+                    {"name": "Garlic bread (shared)", "amount_paise": 15000, "quantity": 1, "participant_ids": everyone},
+                ],
+            },
+            str(uuid.uuid4()),
+        )
+
         self.stdout.write(
             self.style.SUCCESS(
                 f"[seed] users={User.objects.count()} groups={Group.objects.count()} expenses={Expense.objects.count()}"

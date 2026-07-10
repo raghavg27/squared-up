@@ -9,6 +9,8 @@ import re
 
 from rest_framework.exceptions import ValidationError
 
+from .categories import normalize_category
+
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 GROUP_TYPES = {"trip", "home", "couple", "other"}
@@ -74,6 +76,28 @@ def validate_split(data) -> dict:
     return out
 
 
+def validate_items(value) -> list[dict]:
+    """Optional itemized-bill lines. Each: name, amount_paise >= 0, optional
+    quantity >= 1, and a non-empty list of participant user ids."""
+    if not isinstance(value, list) or len(value) < 1:
+        _err("items", "must be a non-empty array")
+    out = []
+    for it in value:
+        if not isinstance(it, dict):
+            _err("items", "each item must be an object")
+        ids = it.get("participant_ids")
+        if not isinstance(ids, list) or len(ids) < 1:
+            _err("items.participant_ids", "must be a non-empty array")
+        qty = it.get("quantity", 1)
+        out.append({
+            "name": _require_str(it.get("name"), "items.name")[:80],
+            "amount_paise": _require_int(it.get("amount_paise"), "items.amount_paise", nonneg=True),
+            "quantity": _require_int(qty, "items.quantity", positive=True),
+            "participant_ids": [_require_int(p, "items.participant_ids", positive=True) for p in ids],
+        })
+    return out
+
+
 def validate_create_expense(data: dict) -> dict:
     if not isinstance(data, dict):
         raise ValidationError("body must be an object")
@@ -85,6 +109,17 @@ def validate_create_expense(data: dict) -> dict:
     category_id = data.get("category_id")
     if category_id is not None:
         category_id = _require_int(category_id, "category_id", positive=True)
+
+    # Category text is normalized onto the canonical list; anything unknown
+    # becomes None so services auto-categorize from the description instead
+    # of persisting a garbage label into analytics.
+    category = data.get("category")
+    if category is not None:
+        category = normalize_category(_require_str(category, "category")[:40])
+
+    items = data.get("items")
+    if items is not None:
+        items = validate_items(items)
 
     expense_date = data.get("expense_date")
     if expense_date is None:
@@ -127,6 +162,8 @@ def validate_create_expense(data: dict) -> dict:
         "currency": currency,
         "expense_date": expense_date,
         "category_id": category_id,
+        "category": category,
+        "items": items,
         "source": source,
         "is_rotation": is_rotation,
         "created_by": _require_int(data.get("created_by"), "created_by", positive=True),

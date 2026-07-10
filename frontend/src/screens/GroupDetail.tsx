@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { apiClient, type Balances, type Expense, type Group, type Turn } from '../api.js';
 import { useStore } from '../store.js';
 import { rupees, rupees0 } from '../format.js';
-import { Avatar, Icon, categoryFor } from '../ui.js';
+import { Avatar, Icon, categoryStyle } from '../ui.js';
 import { shareText } from '../share.js';
 import { useDataChanged } from '../dataEvents.js';
 
@@ -122,7 +122,7 @@ export function GroupDetail() {
           </div>
           <div className="flex flex-col gap-3">
             {recent.map((e) => {
-              const cat = categoryFor(e.description);
+              const cat = categoryStyle(e.category, e.description);
               const payer = e.shares.find((s) => s.paid_paise > 0);
               const iPaid = payer?.user_id === me?.id;
               const net = e.shares.find((s) => s.user_id === me?.id)?.net_paise ?? 0;

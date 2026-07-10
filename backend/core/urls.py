@@ -47,5 +47,9 @@ urlpatterns = [
     # ── AI + activity ──
     path("ai/parse", views.ai_parse),
     path("ai/categorize", views.ai_categorize),
+    path("ai/itemize", views.ai_itemize),  # POST receipt photo/text → line items
     path("activity", views.activity_feed),
+
+    # ── Analytics / Insights ──
+    path("analytics/summary", views.analytics_summary),  # GET spending breakdowns
 ]

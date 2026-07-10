@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { apiClient, type Expense, type Group } from '../api.js';
 import { useStore } from '../store.js';
 import { rupees, rupees0 } from '../format.js';
-import { Icon, categoryFor } from '../ui.js';
+import { Icon, categoryStyle } from '../ui.js';
 
 export function GroupExpenses() {
   const { id } = useParams();
@@ -65,7 +65,7 @@ export function GroupExpenses() {
             </div>
             <div className="bg-surface-container-lowest rounded-card border border-neutral-300 card-shadow divide-y divide-neutral-100">
               {m.items.map((e) => {
-                const cat = categoryFor(e.description);
+                const cat = categoryStyle(e.category, e.description);
                 const payer = e.shares.find((s) => s.paid_paise > 0);
                 const net = e.shares.find((s) => s.user_id === me?.id)?.net_paise ?? 0;
                 const day = new Date(e.expense_date ?? e.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });

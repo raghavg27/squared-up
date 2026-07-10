@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from './store.js';
-import { Avatar, Icon } from './ui.js';
+import { EXPENSE_CATEGORIES } from './api.js';
+import { Avatar, Icon, categoryStyle, guessCategory } from './ui.js';
 import { rupees } from './format.js';
 
 export type SplitType = 'equal' | 'exact' | 'shares';
@@ -30,6 +31,9 @@ export function useExpenseForm() {
   const [desc, setDesc] = useState('');
   const [amount, setAmount] = useState(''); // rupees string
   const [date, setDate] = useState(todayIso());
+  // undefined = no explicit pick → the server auto-categorizes from the
+  // description; set by the user (chip tap), NL parse, or a receipt scan.
+  const [category, setCategory] = useState<string | undefined>(undefined);
   const [payer, setPayer] = useState<number | null>(null);
   const [participants, setParticipants] = useState<number[]>([]);
   const [splitType, setSplitType] = useState<SplitType>('equal');
@@ -73,7 +77,8 @@ export function useExpenseForm() {
   }
 
   return {
-    desc, setDesc, amount, setAmount, date, setDate, payer, setPayer,
+    desc, setDesc, amount, setAmount, date, setDate, category, setCategory,
+    payer, setPayer,
     participants, setParticipants, splitType, setSplitType, perUser, setPerUser,
     amountPaise, perEqual, exactRemaining, shareFor, buildSplit, validate,
   };
@@ -86,11 +91,14 @@ interface FieldsProps {
   members: number[];
   open: boolean;
   onToggle: () => void;
+  // Itemized-bill mode: the per-item editor owns the split, so only the payer is
+  // editable here (the split-type + participants blocks are hidden).
+  itemize?: boolean;
 }
 
 /** Amount + description + date, then a one-line payer/split summary that expands
     into the full payer / split-type / participants editor. */
-export function ExpenseFormFields({ form, members, open, onToggle }: FieldsProps) {
+export function ExpenseFormFields({ form, members, open, onToggle, itemize = false }: FieldsProps) {
   const { me, name } = useStore();
   const [payerOpen, setPayerOpen] = useState(false);
   const f = form;
@@ -98,6 +106,15 @@ export function ExpenseFormFields({ form, members, open, onToggle }: FieldsProps
   const who = (uid: number | null) => (uid === me?.id ? 'You' : uid !== null ? name(uid) : '—');
   const splitLabel = f.splitType === 'equal' ? 'split equally' : f.splitType === 'exact' ? 'split by amounts' : 'split by shares';
   const allOn = members.length > 0 && f.participants.length === members.length;
+
+  // Active chip = explicit pick, else live guess from the description. Keep it
+  // scrolled into view — the suggestion is useless if it lights up off-screen.
+  const activeCat = f.category ?? (f.desc.trim() ? guessCategory(f.desc) : undefined);
+  const chipRow = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    chipRow.current?.querySelector('[aria-checked="true"]')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+  }, [activeCat]);
 
   return (
     <>
@@ -140,14 +157,39 @@ export function ExpenseFormFields({ form, members, open, onToggle }: FieldsProps
         </label>
       </div>
 
+      {/* category — auto-suggested from the description, tap a chip to correct
+          it (the guess can be wrong; the user's pick always wins) */}
+      <div ref={chipRow} className="flex gap-2 overflow-x-auto mt-4 pb-1" role="radiogroup" aria-label="Category">
+        {EXPENSE_CATEGORIES.map((c) => {
+          const on = activeCat === c;
+          const st = categoryStyle(c);
+          return (
+            <button
+              key={c}
+              role="radio"
+              aria-checked={on}
+              onClick={() => f.setCategory(f.category === c ? undefined : c)}
+              className={`flex items-center gap-1.5 shrink-0 rounded-full px-3 py-1.5 font-body text-[13px] font-medium transition-colors ${on ? 'bg-primary text-on-primary' : 'bg-neutral-100 text-secondary'}`}
+            >
+              <Icon name={st.icon} style={{ fontSize: 16 }} />
+              {c}
+            </button>
+          );
+        })}
+      </div>
+
       {/* payer + split summary row */}
       <button onClick={onToggle} className="w-full bg-surface-container-lowest rounded-card border border-neutral-300 card-shadow px-4 py-3 mt-6 flex items-center gap-3 text-left">
         <Avatar name={f.payer !== null ? name(f.payer) : ''} size={32} me={f.payer === me?.id} />
         <span className="flex-1">
-          <span className="block font-body text-[15px] font-medium text-ink">{who(f.payer)} paid · {splitLabel}</span>
+          <span className="block font-body text-[15px] font-medium text-ink">{who(f.payer)} paid · {itemize ? 'itemized' : splitLabel}</span>
           <span className="block font-caption text-caption text-secondary mt-0.5">
-            {f.participants.length} of {members.length} people
-            {f.splitType === 'equal' && f.amountPaise > 0 && f.participants.length > 0 ? ` · ${rupees(f.perEqual)} each` : ''}
+            {itemize ? 'Split by item — see below' : (
+              <>
+                {f.participants.length} of {members.length} people
+                {f.splitType === 'equal' && f.amountPaise > 0 && f.participants.length > 0 ? ` · ${rupees(f.perEqual)} each` : ''}
+              </>
+            )}
           </span>
         </span>
         <Icon name={open ? 'expand_less' : 'expand_more'} className="text-neutral-600" />
@@ -175,6 +217,7 @@ export function ExpenseFormFields({ form, members, open, onToggle }: FieldsProps
             )}
           </div>
 
+          {!itemize && (<>
           {/* split type */}
           <div className="bg-neutral-100 rounded-button p-1 flex mt-4">
             {(['equal', 'exact', 'shares'] as SplitType[]).map((t) => (
@@ -237,6 +280,7 @@ export function ExpenseFormFields({ form, members, open, onToggle }: FieldsProps
               {f.exactRemaining > 0 ? `${rupees(f.exactRemaining)} left to assign` : `${rupees(-f.exactRemaining)} over — adjust the amounts`}
             </p>
           )}
+          </>)}
         </div>
       )}
     </>

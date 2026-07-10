@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { apiClient, type Balances, type Expense } from '../api.js';
 import { useStore } from '../store.js';
 import { rupees } from '../format.js';
-import { AppHeader, Avatar, Icon, categoryFor, groupTypeStyle, useCountUp } from '../ui.js';
+import { AppHeader, Avatar, Icon, categoryStyle, groupTypeStyle, useCountUp } from '../ui.js';
 import { shareText } from '../share.js';
 import { useDataChanged } from '../dataEvents.js';
 
@@ -352,7 +352,7 @@ export function Home() {
           )}
           <div className={`bg-surface-container-lowest rounded-card border border-neutral-300 card-shadow divide-y divide-neutral-100 ${expenses === null ? 'hidden' : ''}`}>
             {(expenses ?? []).map((e) => {
-              const cat = categoryFor(e.description);
+              const cat = categoryStyle(e.category, e.description);
               const payer = e.shares.find((s) => s.paid_paise > 0);
               const iPaid = payer?.user_id === me?.id;
               const myShare = e.shares.find((s) => s.user_id === me?.id);
