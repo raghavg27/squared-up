@@ -1,25 +1,31 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { apiClient, type Balances, type Expense, type Group } from '../api.js';
+import { apiClient } from '../api.js';
 import { useStore } from '../store.js';
+import { useCached } from '../cache.js';
+import { friendlyError } from '../errors.js';
 import { rupees, rupees0 } from '../format.js';
 import { Avatar, Icon, categoryStyle } from '../ui.js';
 import { PageBanner } from '../banners.js';
+import { RowSkeletons } from '../skeletons.js';
+import { LoadErrorCard } from '../ErrorBoundary.js';
 
 export function GroupSummary() {
   const { id } = useParams();
   const gid = Number(id);
   const nav = useNavigate();
   const { me, name } = useStore();
-  const [group, setGroup] = useState<Group | null>(null);
-  const [balances, setBalances] = useState<Balances | null>(null);
-  const [expenses, setExpenses] = useState<Expense[]>([]);
 
-  useEffect(() => {
-    apiClient.group(gid).then(setGroup).catch(() => {});
-    apiClient.balances(gid).then(setBalances).catch(() => {});
-    apiClient.expenses(gid).then(setExpenses).catch(() => {});
-  }, [gid]);
+  // Shares cache keys with GroupDetail, so arriving from there is instant.
+  const g = useCached(`group:${gid}`, () => apiClient.group(gid));
+  const b = useCached(`balances:${gid}`, () => apiClient.balances(gid));
+  const ex = useCached(`expenses:${gid}`, () => apiClient.expenses(gid));
+
+  const group = g.data ?? null;
+  const balances = b.data ?? null;
+  const expenses = ex.data ?? [];
+  const coldLoading = b.loading || ex.loading;
+  const loadError = !coldLoading && !balances ? b.error ?? ex.error : undefined;
 
   const members = balances?.members ?? [];
   const settlements = balances?.simplified_settlements ?? [];
@@ -50,6 +56,18 @@ export function GroupSummary() {
       <main className="monzo-sheet mx-3 -mt-9 px-6 pb-8 flex flex-col gap-6">
         <span className="sheet-handle" />
 
+        {coldLoading && <div className="pt-4"><RowSkeletons count={5} /></div>}
+
+        {loadError !== undefined && (
+          <div className="pt-4">
+            <LoadErrorCard
+              message={friendlyError(loadError, "Couldn't load this summary — give it another try.")}
+              onRetry={() => { g.refresh(); b.refresh(); ex.refresh(); }}
+            />
+          </div>
+        )}
+
+        {!coldLoading && loadError === undefined && (<>
         {/* Who owes whom — the simplified settlement plan */}
         <section className="flex flex-col gap-4 pt-4">
           <h3 className="font-body text-[16px] font-semibold text-neutral-600">Who pays whom</h3>
@@ -138,6 +156,7 @@ export function GroupSummary() {
             </div>
           </section>
         )}
+        </>)}
       </main>
     </div>
   );

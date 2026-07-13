@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { apiClient, ApiError, type Balances, type Group } from '../api.js';
+import { apiClient, type Balances, type Group } from '../api.js';
+import { friendlyError } from '../errors.js';
 import { useStore } from '../store.js';
 import { useToast } from '../toast.js';
 import { Avatar, Icon, groupTypeStyle } from '../ui.js';
@@ -35,7 +36,7 @@ export function GroupSettings() {
     if (busyId) return;
     setBusyId(uid); setErr(null);
     try { const g = await apiClient.removeMember(gid, uid); setGroup(g); load(); }
-    catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not remove'); }
+    catch (e) { setErr(friendlyError(e, 'Could not remove')); }
     finally { setBusyId(null); }
   }
 
@@ -44,14 +45,14 @@ export function GroupSettings() {
     if (!window.confirm('Archive this group? It moves to Archived — you can restore it anytime for reference.')) return;
     setArchiveBusy(true); setErr(null);
     try { await apiClient.archiveGroup(gid); reloadGroups(); nav('/groups'); }
-    catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not archive'); setArchiveBusy(false); }
+    catch (e) { setErr(friendlyError(e, 'Could not archive')); setArchiveBusy(false); }
   }
 
   async function restore() {
     if (archiveBusy) return;
     setArchiveBusy(true); setErr(null);
     try { const g = await apiClient.restoreGroup(gid); setGroup(g); reloadGroups(); }
-    catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not restore'); }
+    catch (e) { setErr(friendlyError(e, 'Could not restore')); }
     finally { setArchiveBusy(false); }
   }
 
@@ -59,7 +60,7 @@ export function GroupSettings() {
     if (exportBusy) return;
     setExportBusy(true); setErr(null);
     try { await apiClient.exportGroup(gid); showToast('Spreadsheet downloaded'); }
-    catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not export'); }
+    catch (e) { setErr(friendlyError(e, 'Could not export')); }
     finally { setExportBusy(false); }
   }
 

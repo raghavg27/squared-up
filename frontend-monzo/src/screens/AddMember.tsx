@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { apiClient, ApiError, type Group, type User } from '../api.js';
+import { apiClient, type Group, type User } from '../api.js';
+import { friendlyError } from '../errors.js';
 import { useStore } from '../store.js';
 import { useToast } from '../toast.js';
 import { Avatar, Icon, InviteCard } from '../ui.js';
@@ -62,7 +63,7 @@ export function AddMember() {
       );
       nav(-1); // back to Group Settings
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : 'Could not add — try again');
+      setErr(friendlyError(e, 'Could not add — try again'));
       setPending(null);
       setBusy(false);
     }

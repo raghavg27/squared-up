@@ -1,33 +1,38 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { apiClient, type Balances, type Expense, type Group, type Turn } from '../api.js';
+import { apiClient } from '../api.js';
 import { useStore } from '../store.js';
+import { useCached } from '../cache.js';
+import { friendlyError } from '../errors.js';
 import { rupees, rupees0 } from '../format.js';
 import { Avatar, Icon, categoryStyle } from '../ui.js';
 import { PageBanner } from '../banners.js';
 import { shareText } from '../share.js';
-import { useDataChanged } from '../dataEvents.js';
+import { HeroSkeleton, RowSkeletons, TileSkeletons } from '../skeletons.js';
+import { LoadErrorCard } from '../ErrorBoundary.js';
 
 export function GroupDetail() {
   const { id } = useParams();
   const groupId = Number(id);
   const { me, name } = useStore();
   const nav = useNavigate();
-  const [group, setGroup] = useState<Group | null>(null);
-  const [balances, setBalances] = useState<Balances | null>(null);
-  // null = still loading, so the empty state can't flash before the fetch lands.
-  const [expenses, setExpenses] = useState<Expense[] | null>(null);
-  const [turn, setTurn] = useState<Turn | null>(null);
 
-  const bump = useDataChanged();
-  const reload = useCallback(() => {
-    apiClient.group(groupId).then(setGroup).catch(() => {});
-    apiClient.balances(groupId).then(setBalances).catch(() => {});
-    apiClient.expenses(groupId).then(setExpenses).catch(() => {});
-    apiClient.turn(groupId).then(setTurn).catch(() => setTurn(null));
-    // bump: refetch when an Undo toast (or similar) mutates data behind this screen.
-  }, [groupId, bump]);
-  useEffect(reload, [reload]);
+  // Cached (SWR): the whole screen paints instantly on revisit and refetches
+  // in the background; su-data-changed (e.g. an Undo toast) re-runs all four.
+  const g = useCached(`group:${groupId}`, () => apiClient.group(groupId));
+  const b = useCached(`balances:${groupId}`, () => apiClient.balances(groupId));
+  const ex = useCached(`expenses:${groupId}`, () => apiClient.expenses(groupId));
+  // Non-rotation groups have no turn — cache the null instead of erroring.
+  const tu = useCached(`turn:${groupId}`, () => apiClient.turn(groupId).catch(() => null));
+
+  const group = g.data ?? null;
+  const balances = b.data ?? null;
+  // null = still loading, so the empty state can't flash before the fetch lands.
+  const expenses = ex.loading ? null : ex.data ?? null;
+  const turn = tu.data ?? null;
+  const coldLoading = g.loading || b.loading || ex.loading;
+  const loadError = !coldLoading && !group ? g.error ?? b.error ?? ex.error : undefined;
+  const retry = () => { g.refresh(); b.refresh(); ex.refresh(); tu.refresh(); };
 
   const exps = expenses ?? [];
   const empty = expenses !== null && expenses.length === 0;
@@ -78,9 +83,19 @@ export function GroupDetail() {
           </div>
         )}
 
-        {/* Brand-new group: skip the zeroed hero/tiles and point at the one
-            action that makes the screen come alive. */}
-        {empty && !archived ? (
+        {coldLoading ? (
+          <div className="flex flex-col gap-7 pb-4">
+            <HeroSkeleton />
+            <TileSkeletons />
+            <RowSkeletons count={4} />
+          </div>
+        ) : loadError ? (
+          <div className="mt-8">
+            <LoadErrorCard message={friendlyError(loadError, "Couldn't load this group — give it another try.")} onRetry={retry} />
+          </div>
+        ) : /* Brand-new group: skip the zeroed hero/tiles and point at the one
+            action that makes the screen come alive. */
+        empty && !archived ? (
           <section className="flex flex-col items-center text-center gap-3 pt-14 pb-10 px-6">
             <div className="w-16 h-16 rounded-card bg-primary/10 text-primary flex items-center justify-center">
               <Icon name="receipt_long" fill style={{ fontSize: 30 }} />
@@ -180,8 +195,8 @@ export function GroupDetail() {
         )}
       </main>
 
-      {/* Action bar — hidden for archived (read-only) groups */}
-      {!archived && (
+      {/* Action bar — hidden for archived (read-only) groups and load failures */}
+      {!archived && !loadError && (
       // z-10: must sit above the monzo-sheet (z-1) or its content eats taps
       <div className="fixed bottom-0 left-0 right-0 z-10 max-w-[28rem] mx-auto px-6 pb-5 pt-3 safe-bottom bg-gradient-to-t from-paper via-paper to-transparent flex flex-col gap-2.5">
         {topDebt && (

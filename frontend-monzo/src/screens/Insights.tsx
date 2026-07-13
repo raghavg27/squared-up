@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { apiClient, type AnalyticsSummary } from '../api.js';
+import { apiClient } from '../api.js';
 import { useStore } from '../store.js';
-import { useDataChanged } from '../dataEvents.js';
+import { useCached } from '../cache.js';
+import { friendlyError } from '../errors.js';
 import { rupees, rupees0, signedRupees } from '../format.js';
 import { Icon } from '../ui.js';
 import { CoralBanner } from '../banners.js';
+import { LoadErrorCard } from '../ErrorBoundary.js';
 import { CategoryDonut, MonthlyBars, GroupBars, StatTile, catColor, catIcon } from '../charts.js';
 
 const RANGES = [3, 6, 12];
@@ -14,22 +16,14 @@ export function Insights() {
   const { groups } = useStore();
   const [months, setMonths] = useState(6);
   const [groupId, setGroupId] = useState<number | undefined>(undefined);
-  const [data, setData] = useState<AnalyticsSummary | null>(null);
-  const [loading, setLoading] = useState(true);
-  const changed = useDataChanged();
 
-  useEffect(() => {
-    let live = true;
-    setLoading(true);
-    apiClient.analytics(months, groupId)
-      .then((d) => { if (live) setData(d); })
-      .catch(() => { if (live) setData(null); })
-      .finally(() => { if (live) setLoading(false); });
-    return () => { live = false; };
-  }, [months, groupId, changed]);
+  // Cached per scope+range, so flipping 3M/6M/12M back and forth is instant.
+  const an = useCached(`analytics:${months}:${groupId ?? 'all'}`, () => apiClient.analytics(months, groupId));
+  const { data, loading } = an;
 
   const t = data?.totals;
-  const empty = !loading && (!data || data.totals.expense_count === 0);
+  // A fetch failure is an error card, never a misleading "no spending" state.
+  const empty = !loading && an.error === undefined && (!data || data.totals.expense_count === 0);
 
   return (
     <div className="min-h-screen pb-28 bg-paper">
@@ -63,6 +57,13 @@ export function Insights() {
         </div>
 
         {loading && <Skeletons />}
+
+        {an.error !== undefined && (
+          <LoadErrorCard
+            message={friendlyError(an.error, "Couldn't load your insights — give it another try.")}
+            onRetry={an.refresh}
+          />
+        )}
 
         {empty && (
           <div className="border border-dashed border-neutral-300 rounded-card py-12 flex flex-col items-center gap-2 text-neutral-600 mt-2">

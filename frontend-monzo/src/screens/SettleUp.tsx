@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { apiClient, ApiError, type Group, type SettlementResult } from '../api.js';
+import { apiClient, type Group, type SettlementResult } from '../api.js';
+import { friendlyError } from '../errors.js';
 import { useStore } from '../store.js';
 import { rupees } from '../format.js';
 import { Avatar, Icon } from '../ui.js';
@@ -66,7 +67,7 @@ export function SettleUp() {
         setPhase('awaiting');
       }
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "That didn't go through — try again");
+      setErr(friendlyError(e, "That didn't go through — try again"));
       setPhase('idle');
     }
   }
@@ -84,7 +85,7 @@ export function SettleUp() {
       await apiClient.confirmSettlement(r.id);
       finish();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "That didn't go through — try again");
+      setErr(friendlyError(e, "That didn't go through — try again"));
       setPhase('idle');
     }
   }
@@ -92,7 +93,7 @@ export function SettleUp() {
   async function confirmPaid() {
     if (!pending) return;
     try { await apiClient.confirmSettlement(pending.id); finish(); }
-    catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not confirm — try again'); }
+    catch (e) { setErr(friendlyError(e, 'Could not confirm — try again')); }
   }
 
   const loading = amount === null;

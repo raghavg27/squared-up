@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { apiClient, ApiError, type Comment, type Expense } from '../api.js';
+import { apiClient, type Comment, type Expense } from '../api.js';
 import { useStore } from '../store.js';
+import { useCached, writeCache } from '../cache.js';
+import { friendlyError } from '../errors.js';
 import { rupees } from '../format.js';
 import { Avatar, Icon, categoryStyle, groupTypeStyle } from '../ui.js';
 import { PageBanner } from '../banners.js';
+import { HeroSkeleton, RowSkeletons } from '../skeletons.js';
+import { LoadErrorCard } from '../ErrorBoundary.js';
 
 export function ExpenseDetail() {
   const { id } = useParams();
@@ -14,36 +18,65 @@ export function ExpenseDetail() {
   const { me, name, groups } = useStore();
   const stateExpense = (loc.state as { expense?: Expense; group?: string } | null)?.expense;
   const groupName = (loc.state as { group?: string } | null)?.group;
-  const [exp, setExp] = useState<Expense | null>(stateExpense ?? null);
-  const [comments, setComments] = useState<Comment[]>([]);
   const [draft, setDraft] = useState('');
   const [posting, setPosting] = useState(false);
   const [cErr, setCErr] = useState<string | null>(null);
 
-  useEffect(() => {
-    apiClient.comments(expId).then(setComments).catch(() => {});
-  }, [expId]);
+  // Cached + always revalidated: nav state / cache can be stale after an edit.
+  const e = useCached(`expense:${expId}`, () => apiClient.expense(expId));
+  const exp = e.data ?? stateExpense ?? null;
+
+  const cm = useCached(`comments:${expId}`, () => apiClient.comments(expId));
+  // Mirrored locally so a new comment can appear the instant it's sent.
+  const [comments, setComments] = useState<Comment[]>(cm.data ?? []);
+  useEffect(() => { if (cm.data) setComments(cm.data); }, [cm.data]);
 
   async function postComment() {
     const body = draft.trim();
-    if (!body || posting) return;
+    if (!body || posting || !me) return;
+    // Optimistic: show the comment immediately; roll back (and return the
+    // text to the box) if the server rejects it.
+    const before = comments;
+    const temp: Comment = { id: -Date.now(), expense_id: expId, user_id: me.id, body, created_at: new Date().toISOString() };
     setPosting(true); setCErr(null);
+    setComments([...before, temp]);
+    setDraft('');
     try {
       const c = await apiClient.addComment(expId, body);
-      setComments((cs) => [...cs, c]);
-      setDraft('');
-    } catch (e) { setCErr(e instanceof ApiError ? e.message : 'Could not post comment'); }
-    finally { setPosting(false); }
+      const next = [...before, c];
+      setComments(next);
+      writeCache(`comments:${expId}`, next);
+    } catch (err) {
+      setComments(before);
+      setDraft(body);
+      setCErr(friendlyError(err, "Couldn't post that comment — try again."));
+    } finally { setPosting(false); }
   }
-
-  useEffect(() => {
-    // Always refetch: nav state can be stale after an edit.
-    apiClient.expense(expId).then(setExp).catch(() => {});
-  }, [expId]);
 
   if (!exp) {
     return (
-      <div className="min-h-screen bg-paper flex items-center justify-center text-neutral-600 font-body">Loading…</div>
+      <div className="min-h-screen bg-paper pb-10">
+        <PageBanner title="Expense" sub={groupName} />
+        <main className="monzo-sheet mx-3 -mt-9 px-6 pb-8">
+          <span className="sheet-handle" />
+          {e.loading ? (
+            <div className="flex flex-col gap-7 pb-4">
+              <HeroSkeleton />
+              <RowSkeletons count={3} />
+            </div>
+          ) : (
+            <div className="mt-8">
+              <LoadErrorCard
+                message={friendlyError(e.error, "We couldn't find this expense — it may have been deleted.")}
+                onRetry={e.refresh}
+              />
+              <button onClick={() => nav(-1)} className="w-full text-center font-heading text-[16px] font-bold text-primary mt-5">
+                Go back
+              </button>
+            </div>
+          )}
+        </main>
+      </div>
     );
   }
 
@@ -186,7 +219,8 @@ export function ExpenseDetail() {
                 const isMe = c.user_id === me?.id;
                 const when = new Date(c.created_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
                 return (
-                  <div key={c.id} className="flex items-start gap-3">
+                  // Negative id = optimistic (still in flight) — dimmed until acked.
+                  <div key={c.id} className={`flex items-start gap-3 ${c.id < 0 ? 'opacity-60' : ''}`}>
                     <Avatar name={name(c.user_id)} size={32} me={isMe} />
                     <div className="flex flex-col min-w-0 flex-1">
                       <div className="flex items-baseline gap-2">

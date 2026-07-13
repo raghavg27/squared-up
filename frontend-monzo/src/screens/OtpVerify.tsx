@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Icon } from '../ui.js';
 import { Logo } from './Loading.js';
-import { apiClient, ApiError } from '../api.js';
+import { apiClient } from '../api.js';
+import { friendlyError } from '../errors.js';
 import { useStore } from '../store.js';
 
 const LEN = 6;
@@ -61,7 +62,7 @@ export function OtpVerify() {
       loginWith(r); // store flips to onboarding or ready; router redirects
       nav(r.is_new || !r.user.name?.trim() ? '/onboarding' : '/', { replace: true });
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : 'Could not verify — try again');
+      setErr(friendlyError(e, 'Could not verify — try again'));
       setBusy(false);
     }
   }
@@ -69,7 +70,7 @@ export function OtpVerify() {
   async function resend() {
     if (cooldown > 0 || !phone) return;
     try { await apiClient.requestOtp(phone); setCooldown(30); setErr(null); }
-    catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not resend'); }
+    catch (e) { setErr(friendlyError(e, 'Could not resend')); }
   }
 
   return (

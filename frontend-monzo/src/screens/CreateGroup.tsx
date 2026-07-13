@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiClient, ApiError, type User } from '../api.js';
+import { apiClient, type User } from '../api.js';
+import { friendlyError } from '../errors.js';
 import { useStore } from '../store.js';
 import { Avatar, Icon, InviteCard } from '../ui.js';
 import { PageBanner } from '../banners.js';
@@ -72,7 +73,7 @@ export function CreateGroup() {
       reloadGroups();
       reloadUsers();
       nav(`/groups/${g.id}`, { replace: true });
-    } catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not create the group — try again'); setBusy(false); }
+    } catch (e) { setErr(friendlyError(e, 'Could not create the group — try again')); setBusy(false); }
   }
 
   return (

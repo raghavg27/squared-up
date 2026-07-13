@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { apiClient, ApiError, type Expense, type Group } from '../api.js';
+import { apiClient, type Expense, type Group } from '../api.js';
+import { friendlyError } from '../errors.js';
 import { useStore } from '../store.js';
 import { Icon } from '../ui.js';
 import { PageBanner } from '../banners.js';
@@ -43,7 +44,7 @@ export function EditExpense() {
         setDetailsOpen(true);
       }
       if (e.group_id) apiClient.group(e.group_id).then(setGroup).catch(() => {});
-    }).catch(() => setErr('Could not load expense'));
+    }).catch((e) => setErr(friendlyError(e, "Couldn't load this expense — go back and try again.")));
   }, [expId, me, setDesc, setAmount, setDate, setCategory, setPayer, setParticipants, setSplitType, setPerUser]);
 
   const members = group?.members ?? form.participants;
@@ -66,17 +67,35 @@ export function EditExpense() {
         split: form.buildSplit(),
       });
       nav(`/expense/${expId}`, { replace: true });
-    } catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not save'); setBusy(false); }
+    } catch (e) { setErr(friendlyError(e, 'Could not save')); setBusy(false); }
   }
 
   async function del() {
     if (busy || !exp) return;
     setBusy(true);
     try { await apiClient.deleteExpense(expId); nav(exp.group_id ? `/groups/${exp.group_id}` : '/', { replace: true }); }
-    catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not delete'); setBusy(false); }
+    catch (e) { setErr(friendlyError(e, 'Could not delete')); setBusy(false); }
   }
 
-  if (!exp) return <div className="min-h-screen bg-paper flex items-center justify-center text-neutral-600 font-body">{err ?? 'Loading…'}</div>;
+  if (!exp) {
+    return (
+      <div className="min-h-screen bg-paper">
+        <PageBanner title="Edit Expense" />
+        <main className="monzo-sheet mx-3 -mt-9 px-6 pb-8">
+          <span className="sheet-handle" />
+          {err ? (
+            <p className="text-danger font-body text-[15px] font-semibold text-center py-10">{err}</p>
+          ) : (
+            <div className="flex flex-col gap-4 pt-8 pb-4" aria-hidden>
+              <span className="skeleton h-14 rounded-card" />
+              <span className="skeleton h-14 rounded-card" />
+              <span className="skeleton h-14 rounded-card" />
+            </div>
+          )}
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-paper flex flex-col">

@@ -33,9 +33,9 @@ origin or the button 403s (phone OTP is unaffected).
 
 | File | Contents |
 |---|---|
-| `main.tsx` | Entry: Router + `StoreProvider` + `App`. |
+| `main.tsx` | Entry: `ErrorBoundary` → Router + `StoreProvider` + `ToastProvider` (+ `OfflineBanner`) + `App`. |
 | `App.tsx` | All routes + auth gating (`loading/anon/onboarding/ready`) + `Shell` (max-width column, route-fade). Add new screens here. |
-| `store.tsx` | Global context: `auth` state machine, `me`, `users`/`userMap`, `groups`, `name(id)`, login/logout/reload. Access via `useStore()`. |
+| `store.tsx` | Global context: `auth` state machine, `me`, `users`/`userMap`, `groups`, `groupsLoaded` (gates empty-state flash), `name(id)`, login/logout/reload. `logout` also `clearCache()`s. Access via `useStore()`. |
 | `api.ts` | **All server types + calls.** Interfaces mirror backend JSON; `apiClient` methods per endpoint; token storage + transparent refresh-on-401 (`AuthExpiredError` → `su-auth-expired` event → store logs out). Add new endpoints here, typed. |
 | `ui.tsx` | Shared kit: `Icon` (Material Symbols name), `Avatar`, `BottomNav`, `InviteCard`, `useCountUp`, `categoryStyle` (stored server label first, keyword guess fallback — never defaults to Food), `guessCategory`, `groupTypeStyle`. Check here before writing new UI primitives. |
 | `banners.tsx` | The Monzo coral header bands: `CoralBanner` (tab roots — title/sub + notifications + account) and `PageBanner` (sub-screens — back + title + optional `action`). Pair with a `monzo-sheet` main. |
@@ -51,6 +51,10 @@ origin or the button 403s (phone OTP is unaffected).
 | `charts.tsx` | Dependency-free SVG/flex charts for Insights: `CategoryDonut`, `MonthlyBars`, `GroupBars`, `StatTile`, plus `catColor`/`catIcon`. |
 | `toast.tsx` | `ToastProvider` + `useToast()` — global bottom toast with optional action (e.g. Undo). Mounted in `main.tsx`. |
 | `dataEvents.ts` | `emitDataChanged()` / `useDataChanged()` — window event telling screens to refetch after out-of-band mutations (e.g. Undo). |
+| `cache.ts` | `useCached(key, fetcher)` — session-scoped stale-while-revalidate hook: returns cached data instantly, refetches in the background, and refires on `su-data-changed`. `{data, loading (cold-load only), error (cold-load only), refresh}`. `readCache`/`writeCache` for optimistic writes; `clearCache()` on logout/auth-expiry. **Screens that fetch should use this, not a raw `useEffect`+`useState`.** Screens sharing data reuse the same key (`balances:<gid>`, `balances-map:<ids>`, `activity`, `personal-balances`, …). |
+| `errors.ts` | `friendlyError(e, fallback)` — maps any thrown value to human copy: server `ApiError` messages pass through, 404/429/5xx get canned lines, network/offline → "You're offline…". **Every catch that surfaces to the user goes through this** (never `e.message` raw). |
+| `skeletons.tsx` | Shimmer placeholders shaped like real content, no layout shift: `RowSkeletons`, `HeroSkeleton`, `DonutSkeleton`, `TileSkeletons`. Build on the `.skeleton` class (reduced-motion safe). |
+| `ErrorBoundary.tsx` | `ErrorBoundary` (render-crash fallback, wraps `App` in `main.tsx`), `OfflineBanner` (`useSyncExternalStore(navigator.onLine)` pill under the notch), `LoadErrorCard` (in-sheet retry card for cold-load fetch failures). |
 
 ## `src/screens/` — route → screen
 
@@ -79,6 +83,16 @@ app *is* the concept.)
   module settings; keep the pattern.
 - **Mutations** that need idempotency pass a UUID `Idempotency-Key` (see
   existing `apiClient` methods).
+- **Fetching**: use `useCached(key, fetcher)` from `cache.ts`, not raw
+  `useEffect`+`useState` — screens then paint instantly on revisit and share
+  snapshots by key. Show a `skeletons.tsx` placeholder while `loading`, a
+  `LoadErrorCard` when `error` is set (never a misleading empty state), and gate
+  real empty states on the loaded flag so ₹0 / "All square" never flashes first.
+- **Optimistic UI**: mutations that feel instant (comment post, friend
+  add/remove) update local state immediately, `writeCache` the new value, and
+  roll back + `showToast(friendlyError(e))` on failure.
+- **Errors shown to users** always go through `friendlyError()` (`errors.ts`) —
+  never surface a raw `e.message`, status code, or "Failed to fetch".
 
 ## Gotchas
 

@@ -1,16 +1,21 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { apiClient, type ActivityEvent } from '../api.js';
 import { useStore } from '../store.js';
+import { useCached } from '../cache.js';
+import { friendlyError } from '../errors.js';
 import { Icon } from '../ui.js';
 import { CoralBanner } from '../banners.js';
 import { ActivityRow, activityBucket, renderActivity, type ActivityRowData } from '../activityRows.js';
+import { RowSkeletons } from '../skeletons.js';
+import { LoadErrorCard } from '../ErrorBoundary.js';
 
 export function ActivityFeed() {
   const { me, name, groups } = useStore();
-  const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [q, setQ] = useState('');
 
-  useEffect(() => { apiClient.activity().then(setEvents).catch(() => {}); }, []);
+  // Same cache key as Home's Recent activity — the full feed opens instantly.
+  const ev = useCached('activity', () => apiClient.activity());
+  const events = ev.data ?? [];
 
   const groupName = (gid: unknown) => (typeof gid === 'number' ? groups.find((g) => g.id === gid)?.name : undefined);
 
@@ -46,13 +51,26 @@ export function ActivityFeed() {
         </div>
         <div className="h-px bg-neutral-100 mt-3" />
 
+        {ev.loading && <div className="mt-6"><RowSkeletons count={6} /></div>}
+
+        {ev.error !== undefined && (
+          <div className="mt-6">
+            <LoadErrorCard
+              message={friendlyError(ev.error, "Couldn't load your activity — give it another try.")}
+              onRetry={ev.refresh}
+            />
+          </div>
+        )}
+
         {grouped.map(([label, items]) => (
           <div key={label} className="flex flex-col gap-4 mt-6">
             <h3 className="font-body text-[16px] font-semibold text-neutral-600">{label}</h3>
             {items.map(({ r }) => <ActivityRow key={r.id} r={r} />)}
           </div>
         ))}
-        {events.length === 0 && <p className="text-neutral-600 font-body text-[15px] text-center py-10">No activity yet.</p>}
+        {!ev.loading && ev.error === undefined && events.length === 0 && (
+          <p className="text-neutral-600 font-body text-[15px] text-center py-10">No activity yet.</p>
+        )}
       </main>
     </div>
   );

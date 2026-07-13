@@ -1,24 +1,26 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { apiClient, type Expense, type Group } from '../api.js';
+import { useMemo, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { apiClient, type Expense } from '../api.js';
 import { useStore } from '../store.js';
+import { useCached } from '../cache.js';
+import { friendlyError } from '../errors.js';
 import { rupees, rupees0 } from '../format.js';
 import { Icon, categoryStyle } from '../ui.js';
 import { PageBanner } from '../banners.js';
+import { RowSkeletons } from '../skeletons.js';
+import { LoadErrorCard } from '../ErrorBoundary.js';
 
 export function GroupExpenses() {
   const { id } = useParams();
   const gid = Number(id);
-  const nav = useNavigate();
   const { me, name } = useStore();
-  const [group, setGroup] = useState<Group | null>(null);
-  const [expenses, setExpenses] = useState<Expense[] | null>(null);
   const [q, setQ] = useState('');
 
-  useEffect(() => {
-    apiClient.group(gid).then(setGroup).catch(() => {});
-    apiClient.expenses(gid).then(setExpenses).catch(() => setExpenses([]));
-  }, [gid]);
+  // Shares cache keys with GroupDetail, so "View all" opens instantly.
+  const g = useCached(`group:${gid}`, () => apiClient.group(gid));
+  const ex = useCached(`expenses:${gid}`, () => apiClient.expenses(gid));
+  const group = g.data ?? null;
+  const expenses = ex.loading ? null : ex.data ?? null;
 
   const months = useMemo(() => {
     const list = (expenses ?? []).filter((e) => e.description.toLowerCase().includes(q.trim().toLowerCase()));
@@ -57,10 +59,13 @@ export function GroupExpenses() {
           <div className="h-px bg-neutral-100 mt-3" />
         </div>
 
-        {expenses === null && (
-          <div className="flex flex-col gap-4">
-            {[0, 1, 2, 3].map((i) => <div key={i} className="skeleton h-[49px] rounded-card" />)}
-          </div>
+        {expenses === null && ex.error === undefined && <RowSkeletons count={5} />}
+
+        {ex.error !== undefined && expenses === null && (
+          <LoadErrorCard
+            message={friendlyError(ex.error, "Couldn't load these expenses — give it another try.")}
+            onRetry={ex.refresh}
+          />
         )}
 
         {months.map((m) => (

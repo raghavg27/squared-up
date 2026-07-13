@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { apiClient, type ActivityEvent, type Balances, type User } from '../api.js';
+import { apiClient, type Balances } from '../api.js';
 import { useStore } from '../store.js';
+import { useCached } from '../cache.js';
 import { rupees, rupees0 } from '../format.js';
 import { Avatar, Icon, groupTypeStyle } from '../ui.js';
 import { CoralBanner } from '../banners.js';
-import { useDataChanged } from '../dataEvents.js';
 import { ActivityRow, renderActivity } from '../activityRows.js';
+import { DonutSkeleton, RowSkeletons } from '../skeletons.js';
 import { BalanceDonut } from './BalanceDonut.js';
 import { SquareUpMoves } from './SquareUpMoves.js';
 
@@ -19,34 +20,28 @@ const TILE_TONES = [
 ];
 
 export function Home() {
-  const { me, groups, name } = useStore();
+  const { me, groups, groupsLoaded, name } = useStore();
   const nav = useNavigate();
-  const [balByGroup, setBalByGroup] = useState<Record<number, Balances>>({});
-  const [personalNets, setPersonalNets] = useState<{ user_id: number; net_paise: number }[]>([]);
-  const [friends, setFriends] = useState<User[]>([]);
-  // null = still loading, so the empty state can't flash before the fetch lands.
-  const [events, setEvents] = useState<ActivityEvent[] | null>(null);
 
-  const bump = useDataChanged(); // refetch when an Undo toast mutates data behind this screen
-  useEffect(() => {
-    if (!me) return;
-    let cancelled = false;
-    apiClient.personalBalances()
-      .then((b) => { if (!cancelled) setPersonalNets(b.counterparties); })
-      .catch(() => { if (!cancelled) setPersonalNets([]); });
-    Promise.all(groups.map((g) => apiClient.balances(g.id).catch(() => null))).then((rows) => {
-      if (cancelled) return;
-      const map: Record<number, Balances> = {};
-      rows.forEach((b, i) => { const g = groups[i]; if (b && g) map[g.id] = b; });
-      setBalByGroup(map);
-    });
-    apiClient.friends().then((f) => { if (!cancelled) setFriends(f); }).catch(() => {});
-    apiClient.activity()
-      .then((a) => { if (!cancelled) setEvents(a); })
-      .catch(() => { if (!cancelled) setEvents([]); });
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [me, groups, bump]);
+  // Cached (SWR): revisits paint instantly from the last snapshot while a
+  // background refetch replaces it; su-data-changed re-runs all four.
+  const groupIds = groups.map((g) => g.id).join(',');
+  const pb = useCached(me ? 'personal-balances' : null, () => apiClient.personalBalances());
+  const gb = useCached(me && groupsLoaded ? `balances-map:${groupIds}` : null, async () => {
+    const rows = await Promise.all(groups.map((g) => apiClient.balances(g.id).catch(() => null)));
+    const map: Record<number, Balances> = {};
+    rows.forEach((b, i) => { const g = groups[i]; if (b && g) map[g.id] = b; });
+    return map;
+  });
+  const fr = useCached(me ? 'friends' : null, () => apiClient.friends());
+  const ev = useCached(me ? 'activity' : null, () => apiClient.activity());
+
+  const personalNets = pb.data?.counterparties ?? [];
+  const balByGroup = gb.data ?? {};
+  const friends = fr.data ?? [];
+  // null = still loading, so the empty state can't flash before the fetch lands.
+  const events = ev.loading ? null : ev.data ?? [];
+  const balancesLoading = pb.loading || gb.loading;
 
   const firstName = (me?.name ?? '').trim().split(/\s+/)[0] || 'there';
 
@@ -102,7 +97,7 @@ export function Home() {
       <main className="monzo-sheet mx-3 -mt-9 px-0 pb-10">
         <span className="sheet-handle" />
 
-        {groups.length === 0 && friendCards.length === 0 ? (
+        {groupsLoaded && !fr.loading && groups.length === 0 && friendCards.length === 0 ? (
           <section className="px-6 pt-10 pb-6 flex flex-col items-center text-center gap-3">
             <div className="w-16 h-16 rounded-card bg-primary/10 text-primary flex items-center justify-center">
               <Icon name="group_add" fill style={{ fontSize: 30 }} />
@@ -117,20 +112,25 @@ export function Home() {
           </section>
         ) : (
           <>
-            {/* Hero: the balance donut */}
-            <section className="pt-9">
-              <BalanceDonut owedPaise={owedTotal} owePaise={oweTotal} />
-              <div className="flex justify-center gap-5 mt-3">
-                <span className="flex items-center gap-1.5 font-body text-[13px] font-semibold text-neutral-600">
-                  <span className="w-2.5 h-2.5 rounded-full bg-teal inline-block" />Owed to you {rupees0(owedTotal)}
-                </span>
-                <span className="flex items-center gap-1.5 font-body text-[13px] font-semibold text-neutral-600">
-                  <span className="w-2.5 h-2.5 rounded-full bg-danger inline-block" />You owe {rupees0(oweTotal)}
-                </span>
-              </div>
-            </section>
+            {/* Hero: the balance donut — skeleton until the real numbers land
+                so ₹0 never flashes and then jumps. */}
+            {balancesLoading ? (
+              <DonutSkeleton />
+            ) : (
+              <section className="pt-9">
+                <BalanceDonut owedPaise={owedTotal} owePaise={oweTotal} />
+                <div className="flex justify-center gap-5 mt-3">
+                  <span className="flex items-center gap-1.5 font-body text-[13px] font-semibold text-neutral-600">
+                    <span className="w-2.5 h-2.5 rounded-full bg-teal inline-block" />Owed to you {rupees0(owedTotal)}
+                  </span>
+                  <span className="flex items-center gap-1.5 font-body text-[13px] font-semibold text-neutral-600">
+                    <span className="w-2.5 h-2.5 rounded-full bg-danger inline-block" />You owe {rupees0(oweTotal)}
+                  </span>
+                </div>
+              </section>
+            )}
 
-            <SquareUpMoves moves={moves} />
+            {!balancesLoading && <SquareUpMoves moves={moves} />}
 
             {/* Groups as Monzo service tiles */}
             <section className="mt-8">
@@ -153,7 +153,7 @@ export function Home() {
                       <Icon name={st.icon} fill style={{ fontSize: 30 }} />
                       <span className="text-[11px] font-bold leading-tight max-w-[88px] truncate">{g.name}</span>
                       <span className="text-[11px] font-extrabold text-white/90 tnum">
-                        {netP === 0 ? '—' : `${netP > 0 ? '+' : '-'}${rupees(Math.abs(netP))}`}
+                        {gb.loading ? '…' : netP === 0 ? '—' : `${netP > 0 ? '+' : '-'}${rupees(Math.abs(netP))}`}
                       </span>
                     </button>
                   );
@@ -207,11 +207,7 @@ export function Home() {
           <h3 className="font-body text-[16px] font-semibold text-neutral-600">Recent activity</h3>
           <Link to="/activity" className="font-body text-[13px] font-semibold text-outline">History</Link>
         </div>
-        {events === null && (
-          <div className="flex flex-col gap-4 mt-4">
-            {[0, 1, 2].map((i) => <div key={i} className="skeleton h-[49px] rounded-card" />)}
-          </div>
-        )}
+        {events === null && <div className="mt-4"><RowSkeletons count={3} /></div>}
         <div className="flex flex-col gap-4 mt-4">
           {recentEvents.map((e) => <ActivityRow key={e.id} r={renderActivity(e, name, me?.id, groupName)} />)}
           {events !== null && events.length === 0 && (

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiClient, ApiError } from '../api.js';
+import { apiClient } from '../api.js';
+import { friendlyError } from '../errors.js';
 import { Icon } from '../ui.js';
 import { PageBanner } from '../banners.js';
 import { useToast } from '../toast.js';
@@ -27,9 +28,14 @@ export function Feedback() {
       setSent(true);
       showToast('Feedback submitted — thank you!');
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : 'Could not submit — try again');
+      setErr(friendlyError(e, 'Could not submit — try again'));
       setBusy(false);
     }
+  }
+
+  // Reset back to an empty form so a second note can be sent without leaving.
+  function submitAnother() {
+    setSent(false); setMessage(''); setKind('feedback'); setErr(null); setBusy(false);
   }
 
   if (sent) {
@@ -46,9 +52,13 @@ export function Feedback() {
             Thank you — your {kind === 'issue' ? 'report' : 'feedback'} has been received. It really helps us
             make Squared Up better.
           </p>
+          <button onClick={submitAnother} className="btn-coral mt-8">
+            <span>Submit another</span>
+            <Icon name="add" fill style={{ fontSize: 22 }} />
+          </button>
           <button
             onClick={() => nav('/profile', { replace: true })}
-            className="w-full h-[54px] rounded-full bg-surface shadow-soft text-primary font-heading text-[17px] font-bold flex items-center justify-center mt-8 active:scale-[0.98] transition-transform"
+            className="w-full h-[54px] rounded-full bg-surface shadow-soft text-primary font-heading text-[17px] font-bold flex items-center justify-center mt-3 active:scale-[0.98] transition-transform"
           >
             Done
           </button>

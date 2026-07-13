@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { apiClient, type Expense, type User } from '../api.js';
+import { apiClient } from '../api.js';
 import { useStore } from '../store.js';
+import { useCached } from '../cache.js';
 import { rupees } from '../format.js';
 import { Avatar, Icon, categoryStyle } from '../ui.js';
 import { PageBanner } from '../banners.js';
+import { RowSkeletons } from '../skeletons.js';
 import { shareInvite } from '../invite.js';
 
 // Per-friend view of non-group ("personal") splits — the friend analog of
@@ -15,19 +17,18 @@ export function FriendDetail() {
   const friendId = Number(id);
   const nav = useNavigate();
   const { me, name } = useStore();
-  const [friend, setFriend] = useState<User | null>(null);
-  const [expenses, setExpenses] = useState<Expense[] | null>(null);
-  const [net, setNet] = useState(0); // + they owe me, − I owe them
 
-  useEffect(() => {
-    // Resolve the friend directly (not via the store's cached directory, which
-    // can lag a just-added placeholder) so the name shows instead of "#<id>".
-    apiClient.user(friendId).then(setFriend).catch(() => setFriend(null));
-    apiClient.personalExpenses(friendId).then(setExpenses).catch(() => setExpenses([]));
-    apiClient.personalBalances()
-      .then((b) => setNet(b.counterparties.find((c) => c.user_id === friendId)?.net_paise ?? 0))
-      .catch(() => setNet(0));
-  }, [friendId]);
+  // Resolve the friend directly (not via the store's cached directory, which
+  // can lag a just-added placeholder) so the name shows instead of "#<id>".
+  const fu = useCached(`user:${friendId}`, () => apiClient.user(friendId));
+  const ex = useCached(`personal-expenses:${friendId}`, () => apiClient.personalExpenses(friendId));
+  // Same key as Home, so the pairwise balance is usually already in cache.
+  const pb = useCached('personal-balances', () => apiClient.personalBalances());
+
+  const friend = fu.data ?? null;
+  const expenses = ex.loading ? null : ex.data ?? [];
+  // + they owe me, − I owe them
+  const net = pb.data?.counterparties.find((c) => c.user_id === friendId)?.net_paise ?? 0;
 
   const settled = net === 0;
   const label = useMemo(() => friend?.name?.trim() || name(friendId), [friend, name, friendId]);
@@ -47,12 +48,23 @@ export function FriendDetail() {
         {/* Balance summary — hero number */}
         <section className="flex flex-col items-center text-center pt-5">
           <Avatar name={label} size={56} />
-          <span className={`font-heading text-[34px] leading-tight font-extrabold tracking-[-1px] tnum mt-3 ${settled ? 'text-neutral-600' : net > 0 ? 'text-ink' : 'text-primary'}`}>
-            {settled ? 'All square' : rupees(Math.abs(net))}
-          </span>
-          <span className="font-body text-[15px] font-semibold text-neutral-600">
-            {settled ? `You and ${label} are squared up` : net > 0 ? `${label} owes you` : `You owe ${label}`}
-          </span>
+          {pb.loading ? (
+            // Skeleton until the balance lands — "All square" must never flash
+            // in front of someone who actually owes money.
+            <>
+              <span className="skeleton h-9 w-36 rounded-card mt-3" aria-hidden />
+              <span className="skeleton h-3.5 w-44 rounded-full mt-2" aria-hidden />
+            </>
+          ) : (
+            <>
+              <span className={`font-heading text-[34px] leading-tight font-extrabold tracking-[-1px] tnum mt-3 ${settled ? 'text-neutral-600' : net > 0 ? 'text-ink' : 'text-primary'}`}>
+                {settled ? 'All square' : rupees(Math.abs(net))}
+              </span>
+              <span className="font-body text-[15px] font-semibold text-neutral-600">
+                {settled ? `You and ${label} are squared up` : net > 0 ? `${label} owes you` : `You owe ${label}`}
+              </span>
+            </>
+          )}
         </section>
 
         {/* Invite: shown until the person signs in and claims their account. */}
@@ -91,11 +103,7 @@ export function FriendDetail() {
 
         {/* Personal expenses with this friend */}
         <h3 className="font-body text-[16px] font-semibold text-neutral-600 mt-1">Expenses</h3>
-        {expenses === null && (
-          <div className="flex flex-col gap-4">
-            {[0, 1, 2].map((i) => <div key={i} className="skeleton h-[49px] rounded-card" />)}
-          </div>
-        )}
+        {expenses === null && <RowSkeletons count={3} />}
         <div className={`flex flex-col gap-4 ${expenses === null ? 'hidden' : ''}`}>
           {(expenses ?? []).map((e) => {
             const cat = categoryStyle(e.category, e.description);

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { apiClient, tokens, type AuthResult, type Group, type User } from './api.js';
+import { clearCache } from './cache.js';
 
 type AuthState = 'loading' | 'anon' | 'onboarding' | 'ready';
 
@@ -9,6 +10,8 @@ interface Store {
   users: User[];
   userMap: Map<number, User>;
   groups: Group[];
+  /** False until the first groups fetch lands — gates empty states. */
+  groupsLoaded: boolean;
   name: (id: number) => string;
   reloadGroups: () => void;
   reloadUsers: () => void;
@@ -35,8 +38,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [me, setMe] = useState<User | undefined>();
   const [users, setUsers] = useState<User[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
+  const [groupsLoaded, setGroupsLoaded] = useState(false);
 
-  const reloadGroups = useCallback(() => { apiClient.groups().then(setGroups).catch(() => {}); }, []);
+  const reloadGroups = useCallback(() => {
+    apiClient.groups().then(setGroups).catch(() => {}).finally(() => setGroupsLoaded(true));
+  }, []);
   const reloadUsers = useCallback(() => { apiClient.users().then(setUsers).catch(() => {}); }, []);
 
   const bootFor = useCallback((u: User) => {
@@ -52,7 +58,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [bootFor]);
 
   useEffect(() => {
-    const onExpired = () => { setMe(undefined); setGroups([]); setAuth('anon'); };
+    const onExpired = () => { setMe(undefined); setGroups([]); setGroupsLoaded(false); setAuth('anon'); };
     window.addEventListener('su-auth-expired', onExpired);
     return () => window.removeEventListener('su-auth-expired', onExpired);
   }, []);
@@ -69,7 +75,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(() => {
     tokens.clear();
-    setMe(undefined); setGroups([]); setUsers([]); setAuth('anon');
+    clearCache(); // cached balances must not survive into the next account
+    setMe(undefined); setGroups([]); setUsers([]); setGroupsLoaded(false); setAuth('anon');
   }, []);
 
   const userMap = new Map(users.map((u) => [u.id, u]));
@@ -77,7 +84,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const name = (id: number) => (id === me?.id ? me?.name : userMap.get(id)?.name) ?? `#${id}`;
 
   const value: Store = {
-    auth, me, users, userMap, groups, name,
+    auth, me, users, userMap, groups, groupsLoaded, name,
     reloadGroups, reloadUsers, loginWith, refreshMe, logout,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

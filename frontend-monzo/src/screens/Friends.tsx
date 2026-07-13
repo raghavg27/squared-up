@@ -2,44 +2,47 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient, type User } from '../api.js';
 import { useStore } from '../store.js';
+import { useCached, writeCache } from '../cache.js';
+import { friendlyError } from '../errors.js';
 import { rupees } from '../format.js';
 import { Avatar, Icon, InviteCard } from '../ui.js';
 import { PageBanner } from '../banners.js';
+import { RowSkeletons } from '../skeletons.js';
+import { useToast } from '../toast.js';
 
 export function Friends() {
   const nav = useNavigate();
   const { me, groups, reloadUsers } = useStore();
-  const [friends, setFriends] = useState<User[]>([]);
+  const { showToast } = useToast();
   const [q, setQ] = useState('');
   const [results, setResults] = useState<User[]>([]);
   const [searching, setSearching] = useState(false);
-  // person id → net paise from my point of view (+ they owe me, − I owe them)
-  const [nets, setNets] = useState<Map<number, number>>(new Map());
   const timer = useRef<ReturnType<typeof setTimeout>>();
 
-  const load = () => apiClient.friends().then(setFriends).catch(() => {});
-  useEffect(() => { load(); }, []);
+  // Cached list mirrored into local state so add/remove can update it
+  // optimistically before the server answers.
+  const fr = useCached(me ? 'friends' : null, () => apiClient.friends());
+  const [friends, setFriends] = useState<User[]>(fr.data ?? []);
+  useEffect(() => { if (fr.data) setFriends(fr.data); }, [fr.data]);
 
-  useEffect(() => {
-    if (!me) return;
-    let cancelled = false;
-    Promise.all([
+  // person id → net paise from my point of view (+ they owe me, − I owe them)
+  const ids = groups.map((g) => g.id).join(',');
+  const nt = useCached(me ? `friend-nets:${ids}` : null, async () => {
+    const [rows, personal] = await Promise.all([
       Promise.all(groups.map((g) => apiClient.balances(g.id).catch(() => null))),
       apiClient.personalBalances().catch(() => null),
-    ]).then(([rows, personal]) => {
-      if (cancelled) return;
-      const m = new Map<number, number>();
-      for (const b of rows) {
-        for (const s of b?.simplified_settlements ?? []) {
-          if (s.from_user === me.id) m.set(s.to_user, (m.get(s.to_user) ?? 0) - s.amount_paise);
-          if (s.to_user === me.id) m.set(s.from_user, (m.get(s.from_user) ?? 0) + s.amount_paise);
-        }
+    ]);
+    const m = new Map<number, number>();
+    for (const b of rows) {
+      for (const s of b?.simplified_settlements ?? []) {
+        if (s.from_user === me!.id) m.set(s.to_user, (m.get(s.to_user) ?? 0) - s.amount_paise);
+        if (s.to_user === me!.id) m.set(s.from_user, (m.get(s.from_user) ?? 0) + s.amount_paise);
       }
-      for (const c of personal?.counterparties ?? []) m.set(c.user_id, (m.get(c.user_id) ?? 0) + c.net_paise);
-      setNets(m);
-    });
-    return () => { cancelled = true; };
-  }, [me, groups]);
+    }
+    for (const c of personal?.counterparties ?? []) m.set(c.user_id, (m.get(c.user_id) ?? 0) + c.net_paise);
+    return m;
+  });
+  const nets = nt.data ?? new Map<number, number>();
 
   useEffect(() => {
     clearTimeout(timer.current);
@@ -56,17 +59,36 @@ export function Friends() {
 
   const friendIds = new Set(friends.map((f) => f.id));
 
+  // Both mutations render optimistically — the list updates the instant you
+  // tap — and roll back with a toast if the server disagrees.
   async function add(u: User) {
-    // reloadUsers so the store's directory (and name()) learns a freshly-added
-    // placeholder immediately — otherwise their FriendDetail shows "#<id>".
-    try { const r = await apiClient.addFriend(u.id); setFriends(r.friends); reloadUsers(); }
-    catch { /* surfaced by list not updating */ }
+    const before = friends;
+    setFriends((f) => (f.some((x) => x.id === u.id) ? f : [...f, u]));
+    try {
+      const r = await apiClient.addFriend(u.id);
+      setFriends(r.friends);
+      writeCache('friends', r.friends);
+      // reloadUsers so the store's directory (and name()) learns a freshly-added
+      // placeholder immediately — otherwise their FriendDetail shows "#<id>".
+      reloadUsers();
+    } catch (e) {
+      setFriends(before);
+      showToast(friendlyError(e, "Couldn't add them — try again."));
+    }
   }
 
   async function unfriend(u: User) {
     if (!window.confirm(`Remove ${u.name || 'this person'} from your friends? Shared expenses and balances are kept.`)) return;
-    try { const r = await apiClient.removeFriend(u.id); setFriends(r.friends); }
-    catch { /* surfaced by list not updating */ }
+    const before = friends;
+    setFriends((f) => f.filter((x) => x.id !== u.id));
+    try {
+      const r = await apiClient.removeFriend(u.id);
+      setFriends(r.friends);
+      writeCache('friends', r.friends);
+    } catch (e) {
+      setFriends(before);
+      showToast(friendlyError(e, "Couldn't remove them — try again."));
+    }
   }
 
   return (
@@ -111,12 +133,15 @@ export function Friends() {
         ) : (
           <div className="flex flex-col gap-4">
             <h3 className="font-body text-[16px] font-semibold text-neutral-600">Your friends</h3>
+            {fr.loading && <RowSkeletons count={4} />}
             {friends.map((u) => {
               const net = nets.get(u.id) ?? 0;
               const pending = !!u.is_placeholder;
               return (
                 <Row key={u.id} u={u} onClick={() => nav(`/friends/${u.id}`)}>
-                  {net !== 0 ? (
+                  {nt.loading ? (
+                    <span className="skeleton h-4 w-14 rounded-full" />
+                  ) : net !== 0 ? (
                     <div className="flex flex-col items-end">
                       <span className={`font-body text-[16px] font-extrabold tnum ${net > 0 ? 'text-teal' : 'text-primary'}`}>
                         {net > 0 ? '+' : '-'}{rupees(Math.abs(net))}
@@ -140,7 +165,7 @@ export function Friends() {
                 </Row>
               );
             })}
-            {friends.length === 0 && <Empty icon="group_add" text="No friends yet. Search above to add people you split with." />}
+            {!fr.loading && friends.length === 0 && <Empty icon="group_add" text="No friends yet. Search above to add people you split with." />}
           </div>
         )}
       </main>

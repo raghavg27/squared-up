@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { apiClient, ApiError, type Group } from './api.js';
+import { apiClient, type Group } from './api.js';
+import { friendlyError } from './errors.js';
 import { useStore } from './store.js';
 import { Icon } from './ui.js';
 import { rupees } from './format.js';
@@ -99,7 +100,7 @@ export function AddExpense() {
       setParsed(true);
       // Low-confidence or rules-fallback parses deserve a visual once-over.
       if (d.confidence < 0.7 || d.source === 'rules' || d.split_type === 'exact') setDetailsOpen(true);
-    } catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not parse that — fill the form below'); }
+    } catch (e) { setErr(friendlyError(e, 'Could not parse that — fill the form below')); }
     finally { setNlBusy(false); }
   }
 
@@ -149,7 +150,7 @@ export function AddExpense() {
         },
       });
       nav(personal ? '/' : `/groups/${groupId}`, { replace: true });
-    } catch (e) { setErr(e instanceof ApiError ? e.message : "That didn't save — check your connection and try again"); setBusy(false); }
+    } catch (e) { setErr(friendlyError(e, "That didn't save — check your connection and try again")); setBusy(false); }
   }
 
   return (

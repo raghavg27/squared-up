@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Icon } from '../ui.js';
 import { Logo } from './Loading.js';
-import { apiClient, ApiError } from '../api.js';
+import { apiClient } from '../api.js';
+import { friendlyError } from '../errors.js';
 import { useStore } from '../store.js';
 
 // OAuth Web client ID, injected at build time (frontend/.env: VITE_GOOGLE_CLIENT_ID).
@@ -58,7 +59,7 @@ export function Login() {
             loginWith(r);
             nav(r.is_new || !r.user.name?.trim() ? '/onboarding' : '/', { replace: true });
           } catch (e) {
-            setErr(e instanceof ApiError ? e.message : 'Google sign-in failed');
+            setErr(friendlyError(e, 'Google sign-in failed'));
             setBusy(false);
           }
         },
@@ -87,7 +88,7 @@ export function Login() {
       const r = await apiClient.requestOtp(phone);
       nav('/otp', { state: { phone: r.phone, devCode: r.dev_code } });
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "That didn't go through — try again");
+      setErr(friendlyError(e, "That didn't go through — try again"));
       setBusy(false);
     }
   }

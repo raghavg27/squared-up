@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiClient, ApiError } from '../api.js';
+import { apiClient } from '../api.js';
+import { friendlyError } from '../errors.js';
 import { useStore } from '../store.js';
 import { Avatar } from '../ui.js';
 import { PageBanner } from '../banners.js';
@@ -31,7 +32,7 @@ export function EditProfile() {
       });
       await refreshMe();
       nav('/profile', { replace: true });
-    } catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not save'); setBusy(false); }
+    } catch (e) { setErr(friendlyError(e, 'Could not save')); setBusy(false); }
   }
 
   return (
