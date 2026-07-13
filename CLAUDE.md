@@ -9,7 +9,8 @@ India-first, UPI settle, money is **integer paise everywhere — no floats**.
 |---|---|---|
 | `backend/domain/` | Framework-free money math (split, balance, simplify, turn, UPI). No Django imports allowed here. | `backend/CLAUDE.md` |
 | `backend/core/` | Django app: auth, views, services, models, validators. Views are thin; all logic in `services.py`. | `backend/CLAUDE.md` |
-| `frontend/src/` | React + Vite + Tailwind v4 PWA. Screens in `src/screens/`, shared kit in `src/ui.tsx`. | `frontend/CLAUDE.md` |
+| `frontend/src/` | React + Vite + Tailwind v4 PWA (classic skin, :5173). Screens in `src/screens/`, shared kit in `src/ui.tsx`. | `frontend/CLAUDE.md` |
+| `frontend-monzo/src/` | Monzo-concept redesign of the same app (:5174) — identical functionality/API, coral+navy+pink skin from `monzo-concept-ui`. | `frontend-monzo/CLAUDE.md` |
 | `Squared-Up-Core-Domain-Spec.md` | Canonical spec: DDL, invariants I1–I9, §14 test vectors. Domain changes must cite it. | — |
 | `Squared-Up-PRD.md`, `DESIGN_BRIEF.md` | Product + visual design references. | — |
 | `graphify-out/` | Generated knowledge graph of this repo (query with `/graphify`). | — |
@@ -22,8 +23,8 @@ pytest tests/test_vectors.py tests/test_property.py   # pure domain, no DB
 pytest                                                # full suite (needs DB)
 python manage.py runserver 8000
 
-# Frontend (from frontend/)
-npm run dev          # Vite dev server :5173, proxies /api -> :8000
+# Frontend (from frontend/ — classic skin; frontend-monzo/ = Monzo skin on :5174)
+npm run dev          # Vite dev server :5173 (:5174 in frontend-monzo), proxies /api -> :8000
 npm run typecheck    # tsc --noEmit — run after any .ts/.tsx change
 npm run build
 

@@ -6,7 +6,6 @@ import { Login } from './screens/Login.js';
 import { OtpVerify } from './screens/OtpVerify.js';
 import { Onboarding } from './screens/Onboarding.js';
 import { Home } from './screens/Home.js';
-import { HomeConcept } from './screens/HomeConcept.js';
 import { GroupsList } from './screens/GroupsList.js';
 import { GroupDetail } from './screens/GroupDetail.js';
 import { CreateGroup } from './screens/CreateGroup.js';
@@ -76,7 +75,6 @@ export function App() {
     <Shell routeKey={loc.pathname}>
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/concept" element={<HomeConcept />} />
         <Route path="/groups" element={<GroupsList />} />
         <Route path="/groups/new" element={<CreateGroup />} />
         <Route path="/groups/:id" element={<GroupDetail />} />

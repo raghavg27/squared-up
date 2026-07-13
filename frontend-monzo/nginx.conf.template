@@ -1,0 +1,35 @@
+server {
+    listen ${PORT};
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Cache built, fingerprinted assets aggressively.
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Never cache the service worker or app shell — clients must revalidate so
+    # PWA updates actually ship (fingerprinted /assets/ stay immutable above).
+    location = /sw.js            { add_header Cache-Control "no-cache"; }
+    location = /registerSW.js    { add_header Cache-Control "no-cache"; }
+    location = /manifest.webmanifest { add_header Cache-Control "no-cache"; }
+    location = /index.html       { add_header Cache-Control "no-cache"; }
+
+    # Proxy API calls to the Django backend (same-origin → no CORS needed).
+    # BACKEND_URL is the backend service origin (docker: http://backend:8000;
+    # Railway: the backend's public https domain).
+    location /api/ {
+        proxy_pass ${BACKEND_URL};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # SPA fallback: everything else serves index.html for client-side routing.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
