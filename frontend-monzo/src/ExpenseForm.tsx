@@ -106,6 +106,9 @@ export function ExpenseFormFields({ form, members, open, onToggle, itemize = fal
   const who = (uid: number | null) => (uid === me?.id ? 'You' : uid !== null ? name(uid) : '—');
   const splitLabel = f.splitType === 'equal' ? 'split equally' : f.splitType === 'exact' ? 'split by amounts' : 'split by shares';
   const allOn = members.length > 0 && f.participants.length === members.length;
+  // Solo group (personal tracker): payer/split is always "you, all of it" —
+  // hide the whole editor instead of showing a one-person picker.
+  const solo = members.length === 1 && members[0] === me?.id;
 
   // Active chip = explicit pick, else live guess from the description. Keep it
   // scrolled into view — the suggestion is useless if it lights up off-screen.
@@ -178,8 +181,11 @@ export function ExpenseFormFields({ form, members, open, onToggle, itemize = fal
         })}
       </div>
 
-      {/* payer + split summary row */}
-      <button onClick={onToggle} className="w-full bg-surface-container-lowest rounded-card shadow-soft px-4 py-3 mt-6 flex items-center gap-3 text-left">
+      {/* payer + split card: summary row on top, editor expands inside the
+          same card so the whole thing reads as one control */}
+      {!solo && (
+      <div className="bg-surface-container-lowest rounded-card shadow-soft mt-6">
+      <button onClick={onToggle} className="w-full px-4 py-3 flex items-center gap-3 text-left">
         <Avatar name={f.payer !== null ? name(f.payer) : ''} size={32} me={f.payer === me?.id} />
         <span className="flex-1">
           <span className="block font-body text-[15px] font-medium text-ink">{who(f.payer)} paid · {itemize ? 'itemized' : splitLabel}</span>
@@ -192,11 +198,11 @@ export function ExpenseFormFields({ form, members, open, onToggle, itemize = fal
             )}
           </span>
         </span>
-        <Icon name={open ? 'expand_less' : 'expand_more'} className="text-neutral-600" />
+        <Icon name="expand_more" className={`text-neutral-600 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
-        <div className="mt-4">
+        <div className="px-4 pb-4 pt-3 border-t border-neutral-100 page-enter">
           {/* paid by */}
           <div className="relative flex items-center justify-between">
             <span className="font-body text-[15px] font-semibold text-ink">Paid by</span>
@@ -282,6 +288,8 @@ export function ExpenseFormFields({ form, members, open, onToggle, itemize = fal
           )}
           </>)}
         </div>
+      )}
+      </div>
       )}
     </>
   );

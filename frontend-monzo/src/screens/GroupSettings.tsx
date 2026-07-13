@@ -21,6 +21,7 @@ export function GroupSettings() {
 
   const archived = !!group?.archived_at;
   const isOwner = !!me && group?.created_by === me.id;
+  const personal = group?.type === 'personal'; // solo tracker: no add-member
 
   const load = useCallback(() => {
     apiClient.group(gid).then(setGroup).catch(() => {});
@@ -90,7 +91,7 @@ export function GroupSettings() {
         <section className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <h3 className="font-body text-[16px] font-semibold text-neutral-600">Members</h3>
-            {!archived && (
+            {!archived && !personal && (
               <button onClick={() => nav(`/groups/${gid}/add-member`)} className="flex items-center gap-1 text-primary font-body text-[14px] font-bold active:scale-95 transition-transform">
                 <Icon name="person_add" style={{ fontSize: 20 }} /> Add
               </button>
@@ -125,7 +126,8 @@ export function GroupSettings() {
               );
             })}
           </div>
-          {!archived && <p className="font-caption text-caption text-neutral-600">A member can only be removed once their balance is squared up.</p>}
+          {!archived && !personal && <p className="font-caption text-caption text-neutral-600">A member can only be removed once their balance is squared up.</p>}
+          {personal && <p className="font-caption text-caption text-neutral-600">A personal tracker is just you — members can't be added.</p>}
         </section>
 
         {/* Export — any member, archived groups included (read-only history). */}

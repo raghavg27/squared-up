@@ -121,7 +121,8 @@ def group_members(request, pk: int):
     user_id = request.data.get("user_id")
     if not isinstance(user_id, int):
         raise bad_request("VALIDATION_ERROR", "user_id (int) is required")
-    return Response(services.add_group_member(pk, _actor(request), user_id), status=201)
+    include_history = bool(request.data.get("include_history"))
+    return Response(services.add_group_member(pk, _actor(request), user_id, include_history), status=201)
 
 
 @api_view(["DELETE"])

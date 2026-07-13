@@ -25,7 +25,8 @@ export function AddExpense() {
   const members = personal ? personalMembers : (group?.members ?? []);
 
   const form = useExpenseForm();
-  const [detailsOpen, setDetailsOpen] = useState(false);
+  // Payer/split editor starts expanded — most saves need a glance at it anyway.
+  const [detailsOpen, setDetailsOpen] = useState(true);
   const [mode, setMode] = useState<'split' | 'itemize'>('split');
   const [items, setItems] = useState<ItemRow[]>([]);
   const [nl, setNl] = useState('');
@@ -34,24 +35,22 @@ export function AddExpense() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Whose turn it is in a rotation group — surfaced as a tappable hint, never
+  // a silent pre-fill: the payer always defaults to the person adding.
+  const [turnUser, setTurnUser] = useState<number | null>(null);
+
   const { setPayer, setParticipants } = form;
   useEffect(() => {
+    setPayer((p) => p ?? me?.id ?? null);
     if (personal) {
-      setPayer((p) => p ?? me?.id ?? null);
       setParticipants((cur) => (cur.length ? cur : personalMembers));
       return;
     }
     apiClient.group(groupId!).then((g) => {
       setGroup(g);
       setParticipants((cur) => (cur.length ? cur : g.members));
-      // Rotation group (§9.6): pre-fill payer = whose-turn. Fall back to me/first
-      // member if the turn can't be computed (e.g. no rotation expenses yet).
       if (g.rotation_enabled) {
-        apiClient.turn(groupId!)
-          .then((t) => setPayer((p) => p ?? t.next_payer.user_id))
-          .catch(() => setPayer((p) => p ?? me?.id ?? g.members[0] ?? null));
-      } else {
-        setPayer((p) => p ?? me?.id ?? g.members[0] ?? null);
+        apiClient.turn(groupId!).then((t) => setTurnUser(t.next_payer.user_id)).catch(() => {});
       }
     }).catch(() => {});
   }, [groupId, me, personal, personalMembers, setPayer, setParticipants]);
@@ -76,13 +75,17 @@ export function AddExpense() {
       form.setDesc(d.description);
       form.setCategory(d.category);
       if (d.amount_paise !== null) form.setAmount((d.amount_paise / 100).toString());
+      if (d.expense_date) form.setDate(d.expense_date);
       const payerId = d.payer_name != null ? byName(d.payer_name) : undefined;
       if (payerId !== undefined) form.setPayer(payerId);
       else if (d.i_paid && me) form.setPayer(me.id);
       const matched = d.participant_names
         .map(byName)
         .filter((x): x is number => x !== undefined);
-      form.setParticipants(matched.length > 0 ? matched : members);
+      // Only narrow the split when names were actually named. No match → keep
+      // the all-members default; overwriting with a stale (possibly empty)
+      // `members` closure is what blanked the list to "0 of N" mid-parse.
+      if (matched.length > 0) form.setParticipants(matched);
       if (d.split_type === 'exact' && d.exact_amounts_paise) {
         const per: Record<number, string> = {};
         for (const [n, paise] of Object.entries(d.exact_amounts_paise)) {
@@ -174,7 +177,7 @@ export function AddExpense() {
               onChange={(e) => setNl(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && runParse()}
               autoFocus
-              placeholder="Type it — auto 240 Neha ke saath, I paid"
+              placeholder="Skip the form — Dinner 800 with Rahul on 10 Jun, I paid"
               className="flex-1 bg-transparent outline-none font-body text-[16px] text-ink placeholder:text-secondary"
             />
             {nl && (
@@ -208,6 +211,19 @@ export function AddExpense() {
             onToggle={() => setDetailsOpen((o) => !o)}
             itemize={mode === 'itemize'}
           />
+
+          {turnUser !== null && turnUser !== form.payer && (
+            <button
+              onClick={() => form.setPayer(turnUser)}
+              className="w-full mt-3 flex items-center gap-2 bg-teal/10 rounded-card px-4 py-3 active:scale-[0.98] transition-transform"
+            >
+              <Icon name="autorenew" className="text-tertiary" style={{ fontSize: 20 }} />
+              <span className="flex-1 text-left font-body text-[13.5px] font-semibold text-ink">
+                Turn to Pay: it's {turnUser === me?.id ? 'your' : `${name(turnUser)}'s`} turn
+              </span>
+              <span className="font-body text-[13px] font-bold text-tertiary">Set as payer</span>
+            </button>
+          )}
 
           {mode === 'itemize' && (
             <ItemizeEditor

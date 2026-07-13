@@ -26,13 +26,14 @@ Everything is re-exported from `domain/__init__.py`.
 
 | File | Contents |
 |---|---|
-| `models.py` | ORM, 1:1 with Spec §2 DDL. Money columns are `BigIntegerField` paise. Soft delete via `deleted_at`. |
+| `models.py` | ORM, 1:1 with Spec §2 DDL (one deviation: `Group.type` is free text, not the `group_type` enum — users can define custom types). Money columns are `BigIntegerField` paise. Soft delete via `deleted_at`. |
 | `services.py` | **All business logic**, grouped by `# ──` section headers: directory, friends, membership, expenses, comments, balances, turn, settlements, activity. Authz helpers at top (`require_group_member`, `require_expense_access`). |
 | `views.py` | Thin DRF function views, one per route. `_actor(request)` reads the JWT user — never trust actor ids from the body. |
 | `views_auth.py` | Public auth endpoints (request-otp, verify-otp, google, refresh, me). |
 | `auth.py` | PyJWT encode/decode, `JWTAuthentication` (DRF class). Access + refresh token pair. |
 | `auth_service.py` | OTP lifecycle: hashed codes, rate limit, attempt cap, lazy user creation, `normalize_phone()` → E.164. Google credential verify. |
-| `validators.py` | Request-body validation; raises domain/API errors before services run. |
+| `membership_service.py` | Membership side-effects: `befriend()` (group co-members auto-become friends; backfilled by migration 0010) + `include_member_in_history()` (fold a new member into past *equal-split* expenses — exact/itemized untouched). Called from `add_group_member`/`create_group`. |
+| `validators.py` | Request-body validation; raises domain/API errors before services run. `GROUP_TYPES` includes `personal` (solo tracker: no member_ids, rotation forced off). |
 | `exceptions.py` | §11 error envelope: exception handler mapping codes → HTTP status. |
 | `middleware.py` | Request plumbing (see file). |
 | `sms.py` | OTP delivery seam: `console` (logs + returns `dev_code`) or `twilio` (REST, no SDK). Selected by `SMS_PROVIDER`. |
@@ -60,6 +61,8 @@ Everything is re-exported from `domain/__init__.py`.
 | `test_itemize.py` | `domain.itemize.allocate_items` vectors — pure, no DB |
 | `test_insights.py` | Itemized expenses (shares derived + persisted), `/analytics/summary` breakdowns + group-scope 404, `/ai/itemize` rules path |
 | `test_categories.py` | Category keyword rules, `normalize_category` aliases, create/edit API round-trip (user's pick wins, garbage falls back to auto) |
+| `test_group_types.py` | Group `type` free text: standard values pass, custom labels saved/normalized, 2-24 char bounds (deliberate deviation from Spec §2 enum) |
+| `test_membership.py` | Membership side-effects: `include_history` re-splits equal expenses only, auto-friend on create/add (unfriend sticks), `personal` tracker is solo |
 
 `conftest.py` wires Django settings for pytest.
 

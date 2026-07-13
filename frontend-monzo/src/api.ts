@@ -64,7 +64,8 @@ export interface NlDraft {
   payer_name: string | null; i_paid: boolean;
   participant_names: string[]; split_type: 'equal' | 'exact';
   exact_amounts_paise: Record<string, number> | null;
-  mentioned_names: string[]; confidence: number; source: 'llm' | 'rules';
+  mentioned_names: string[]; expense_date: string | null;
+  confidence: number; source: 'llm' | 'rules';
 }
 export interface SettlementResult { id: number; status: string; method: string; upi_intent: string | null; requires_confirmation: boolean }
 export interface Settlement {
@@ -215,7 +216,10 @@ export const apiClient = {
   createGroup: (input: unknown) => req<Group>('/groups', { method: 'POST', body: JSON.stringify(input) }),
   archiveGroup: (id: number) => req<Group>(`/groups/${id}`, { method: 'DELETE' }),
   restoreGroup: (id: number) => req<Group>(`/groups/${id}/restore`, { method: 'POST' }),
-  addMember: (gid: number, user_id: number) => req<Group>(`/groups/${gid}/members`, { method: 'POST', body: JSON.stringify({ user_id }) }),
+  // include_history: also fold the newcomer into the group's past equal-split
+  // expenses (deliberate exact/itemized splits are never touched server-side).
+  addMember: (gid: number, user_id: number, include_history = false) =>
+    req<Group & { history_included: number }>(`/groups/${gid}/members`, { method: 'POST', body: JSON.stringify({ user_id, include_history }) }),
   removeMember: (gid: number, uid: number) => req<Group>(`/groups/${gid}/members/${uid}`, { method: 'DELETE' }),
   exportGroup: (gid: number) => download(`/groups/${gid}/export`, `group-${gid}.xlsx`),
 

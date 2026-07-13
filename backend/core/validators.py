@@ -13,7 +13,7 @@ from .categories import normalize_category
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
-GROUP_TYPES = {"trip", "home", "couple", "other"}
+GROUP_TYPES = {"trip", "home", "couple", "personal", "other"}
 ROTATION_MODES = {"balanced", "round_robin"}
 EXPENSE_SOURCES = {"manual", "nl", "import"}
 SETTLEMENT_METHODS = {"upi", "manual"}
@@ -226,8 +226,13 @@ def validate_create_group(data: dict) -> dict:
         raise ValidationError("body must be an object")
 
     gtype = data.get("type", "other")
-    if gtype not in GROUP_TYPES:
-        _err("type", f"must be one of {sorted(GROUP_TYPES)}")
+    if not isinstance(gtype, str):
+        _err("type", "must be a string")
+    # Standard types pass as-is; anything else is a user-defined custom type
+    # (whitespace-normalized, bounded to the column width).
+    gtype = " ".join(gtype.split())
+    if gtype not in GROUP_TYPES and not (2 <= len(gtype) <= 24):
+        _err("type", "must be a standard type or a custom label of 2-24 characters")
 
     rotation_mode = data.get("rotation_mode", "balanced")
     if rotation_mode not in ROTATION_MODES:
@@ -241,6 +246,12 @@ def validate_create_group(data: dict) -> dict:
     if not isinstance(member_ids, list):
         _err("member_ids", "must be an array")
     member_ids = [_require_int(m, "member_ids", positive=True) for m in member_ids]
+
+    # A personal tracker is a solo group: just the creator, no rotation.
+    if gtype == "personal":
+        if member_ids:
+            _err("member_ids", "a personal tracker is just you — no other members")
+        rotation_enabled = False
 
     return {
         "name": _require_str(data.get("name"), "name"),

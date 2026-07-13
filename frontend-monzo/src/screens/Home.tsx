@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { apiClient, type Balances, type Expense } from '../api.js';
+import { apiClient, type ActivityEvent, type Balances, type User } from '../api.js';
 import { useStore } from '../store.js';
 import { rupees, rupees0 } from '../format.js';
-import { Avatar, Icon, categoryStyle, groupTypeStyle } from '../ui.js';
+import { Avatar, Icon, groupTypeStyle } from '../ui.js';
 import { CoralBanner } from '../banners.js';
 import { useDataChanged } from '../dataEvents.js';
+import { ActivityRow, renderActivity } from '../activityRows.js';
 import { BalanceDonut } from './BalanceDonut.js';
 import { SquareUpMoves } from './SquareUpMoves.js';
 
@@ -22,8 +23,9 @@ export function Home() {
   const nav = useNavigate();
   const [balByGroup, setBalByGroup] = useState<Record<number, Balances>>({});
   const [personalNets, setPersonalNets] = useState<{ user_id: number; net_paise: number }[]>([]);
-  const [personalExp, setPersonalExp] = useState<Expense[]>([]);
-  const [expenses, setExpenses] = useState<(Expense & { _group: string })[] | null>(null);
+  const [friends, setFriends] = useState<User[]>([]);
+  // null = still loading, so the empty state can't flash before the fetch lands.
+  const [events, setEvents] = useState<ActivityEvent[] | null>(null);
 
   const bump = useDataChanged(); // refetch when an Undo toast mutates data behind this screen
   useEffect(() => {
@@ -38,38 +40,13 @@ export function Home() {
       rows.forEach((b, i) => { const g = groups[i]; if (b && g) map[g.id] = b; });
       setBalByGroup(map);
     });
-    // Non-group ("personal") label: the other people in the split.
-    const label = (e: Expense) => {
-      const others = e.shares.map((s) => s.user_id).filter((uid) => uid !== me.id);
-      return others.length ? others.map((uid) => name(uid)).join(', ') : 'Personal';
-    };
-    Promise.all([
-      Promise.all(
-        groups.map((g) => apiClient.expenses(g.id).then((es) => es.map((e) => ({ ...e, _group: g.name }))).catch(() => [])),
-      ),
-      apiClient.personalExpenses().catch(() => [] as Expense[]),
-    ]).then(([lists, personal]) => {
-      if (cancelled) return;
-      setPersonalExp(personal);
-      const rows = [...lists.flat(), ...personal.map((e) => ({ ...e, _group: label(e) }))];
-      const merged = rows.sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(0, 6);
-      setExpenses(merged);
-    });
+    apiClient.friends().then((f) => { if (!cancelled) setFriends(f); }).catch(() => {});
+    apiClient.activity()
+      .then((a) => { if (!cancelled) setEvents(a); })
+      .catch(() => { if (!cancelled) setEvents([]); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me, groups, bump]);
-
-  // Friend cards mirror group cards: one per person I've split with outside a
-  // group, ordered by how much is outstanding. Net + they owe me, − I owe.
-  const friendCards = useMemo(() => {
-    const netMap = new Map(personalNets.map((c) => [c.user_id, c.net_paise]));
-    const ids = new Set<number>();
-    for (const e of personalExp) for (const s of e.shares) if (s.user_id !== me?.id) ids.add(s.user_id);
-    for (const c of personalNets) ids.add(c.user_id);
-    return [...ids]
-      .map((id) => ({ id, net: netMap.get(id) ?? 0 }))
-      .sort((a, b) => Math.abs(b.net) - Math.abs(a.net));
-  }, [personalExp, personalNets, me]);
 
   const firstName = (me?.name ?? '').trim().split(/\s+/)[0] || 'there';
 
@@ -95,11 +72,25 @@ export function Home() {
     }
     const gets = [...net.entries()].filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
     const pays = [...net.entries()].filter(([, n]) => n < 0).sort((a, b) => a[1] - b[1]);
-    return { gets, pays, oweSrc };
+    return { net, gets, pays, oweSrc };
   }, [balByGroup, personalNets, groups, me]);
+
+  // Friend cards mirror group cards: everyone on the friends list (group
+  // co-members are auto-friended server-side), outstanding balances first.
+  const friendCards = useMemo(
+    () =>
+      friends
+        .map((u) => ({ id: u.id, net: moves.net.get(u.id) ?? 0 }))
+        .sort((a, b) => Math.abs(b.net) - Math.abs(a.net) || name(a.id).localeCompare(name(b.id))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [friends, moves],
+  );
 
   const owedTotal = useMemo(() => moves.gets.reduce((s, [, n]) => s + n, 0), [moves]);
   const oweTotal = useMemo(() => moves.pays.reduce((s, [, n]) => s - n, 0), [moves]);
+
+  const groupName = (gid: unknown) => (typeof gid === 'number' ? groups.find((g) => g.id === gid)?.name : undefined);
+  const recentEvents = (events ?? []).slice(0, 6);
 
   const today = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' });
 
@@ -108,7 +99,10 @@ export function Home() {
       <CoralBanner title={`Hi ${firstName}`} sub={today} />
 
       {/* White sheet pulled up over the banner, Monzo "Balance" style. */}
-      <main className="monzo-sheet mx-3 -mt-9 px-0 pb-6">
+      {/* pb-10: tile glow shadows reach ~40px below the tiles — the sheet must
+          extend past them or its bottom edge cuts the glow and reads as a
+          stray line under the icons */}
+      <main className="monzo-sheet mx-3 -mt-9 px-0 pb-10">
         <span className="sheet-handle" />
 
         {groups.length === 0 && friendCards.length === 0 ? (
@@ -177,74 +171,56 @@ export function Home() {
               </div>
             </section>
 
-            {/* Friends — non-group splits, as first-class as groups */}
-            {friendCards.length > 0 && (
-              <section className="mt-8">
-                <div className="flex items-baseline justify-between px-6">
-                  <h3 className="font-body text-[16px] font-semibold text-neutral-600">Friends</h3>
-                  <Link to="/friends" className="font-body text-[13px] font-semibold text-outline">View all</Link>
-                </div>
-                <div className="flex flex-col gap-4 mt-4 px-6">
-                  {friendCards.slice(0, 4).map(({ id, net }) => (
-                    <button key={id} onClick={() => nav(`/friends/${id}`)} className="flex items-center gap-3 active:scale-[0.98] transition-transform">
-                      <Avatar name={name(id)} size={49} />
-                      <div className="flex flex-col flex-1 min-w-0 text-left">
-                        <span className="font-body text-[16px] font-bold text-ink truncate">{name(id)}</span>
-                        <span className="font-body text-[12.5px] font-semibold text-neutral-600">
-                          {net === 0 ? 'Settled' : net > 0 ? 'Owes you' : 'You owe'}
-                        </span>
-                      </div>
-                      <span className={`font-body text-[16px] font-extrabold tnum ${net > 0 ? 'text-teal' : net < 0 ? 'text-primary' : 'text-neutral-600'}`}>
-                        {net === 0 ? '—' : `${net > 0 ? '+' : '-'}${rupees(Math.abs(net))}`}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-            )}
           </>
         )}
       </main>
 
-      {/* Recent activity: Monzo transaction rows on the page, below the sheet */}
-      <section className="px-9 mt-7">
+      {/* Friends — everyone you split with (group co-members auto-friend).
+          Own white sheet, same treatment as Recent activity, so it never
+          merges into the group tiles above. */}
+      {friendCards.length > 0 && (
+        <section className="monzo-sheet mx-3 mt-5 px-6 pt-6 pb-7">
+          <div className="flex items-baseline justify-between">
+            <h3 className="font-body text-[16px] font-semibold text-neutral-600">Friends</h3>
+            <Link to="/friends" className="font-body text-[13px] font-semibold text-outline">View all</Link>
+          </div>
+          <div className="flex flex-col gap-4 mt-4">
+            {friendCards.slice(0, 4).map(({ id, net }) => (
+              <button key={id} onClick={() => nav(`/friends/${id}`)} className="flex items-center gap-3 active:scale-[0.98] transition-transform">
+                <Avatar name={name(id)} size={49} />
+                <div className="flex flex-col flex-1 min-w-0 text-left">
+                  <span className="font-body text-[16px] font-bold text-ink truncate">{name(id)}</span>
+                  <span className="font-body text-[12.5px] font-semibold text-neutral-600">
+                    {net === 0 ? 'Settled' : net > 0 ? 'Owes you' : 'You owe'}
+                  </span>
+                </div>
+                <span className={`font-body text-[16px] font-extrabold tnum ${net > 0 ? 'text-teal' : net < 0 ? 'text-primary' : 'text-neutral-600'}`}>
+                  {net === 0 ? '—' : `${net > 0 ? '+' : '-'}${rupees(Math.abs(net))}`}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Recent activity: the real event feed (adds, edits, deletions,
+          comments, settlements, member changes) — same rows as /activity */}
+      <section className="monzo-sheet mx-3 mt-5 px-6 pt-6 pb-7">
         <div className="flex items-baseline justify-between">
           <h3 className="font-body text-[16px] font-semibold text-neutral-600">Recent activity</h3>
           <Link to="/activity" className="font-body text-[13px] font-semibold text-outline">History</Link>
         </div>
-        {expenses === null && (
+        {events === null && (
           <div className="flex flex-col gap-4 mt-4">
             {[0, 1, 2].map((i) => <div key={i} className="skeleton h-[49px] rounded-card" />)}
           </div>
         )}
         <div className="flex flex-col gap-4 mt-4">
-          {(expenses ?? []).map((e) => {
-            const cat = categoryStyle(e.category, e.description);
-            const payer = e.shares.find((s) => s.paid_paise > 0);
-            const iPaid = payer?.user_id === me?.id;
-            const myShare = e.shares.find((s) => s.user_id === me?.id);
-            const net = myShare?.net_paise ?? 0;
-            return (
-              <Link key={e.id} to={`/expense/${e.id}`} state={{ group: e._group }} className="flex items-center gap-3 active:scale-[0.98] transition-transform">
-                <span className="w-[49px] h-[49px] shrink-0 rounded-xl bg-surface shadow-soft flex items-center justify-center text-primary">
-                  <Icon name={cat.icon} style={{ fontSize: 26 }} />
-                </span>
-                <div className="flex flex-col flex-1 min-w-0">
-                  <span className="font-body text-[16px] font-bold text-ink truncate">{e.description}</span>
-                  <span className="font-body text-[12.5px] font-semibold text-neutral-600 truncate">
-                    {e._group} · {iPaid ? 'You paid' : `Paid by ${payer ? name(payer.user_id) : '—'}`} {rupees(e.amount_paise)}
-                  </span>
-                </div>
-                <span className={`font-body text-[16px] font-extrabold tnum shrink-0 ${net > 0 ? 'text-teal' : net < 0 ? 'text-primary' : 'text-neutral-600'}`}>
-                  {net > 0 ? `+${rupees(net)}` : net < 0 ? `-${rupees(-net)}` : '—'}
-                </span>
-              </Link>
-            );
-          })}
-          {expenses !== null && expenses.length === 0 && (
+          {recentEvents.map((e) => <ActivityRow key={e.id} r={renderActivity(e, name, me?.id, groupName)} />)}
+          {events !== null && events.length === 0 && (
             <div className="py-6 flex flex-col items-center gap-2 text-neutral-600">
               <Icon name="receipt_long" style={{ fontSize: 28 }} />
-              <p className="font-body text-[15px] text-center">No expenses yet — add your first one with the + button.</p>
+              <p className="font-body text-[15px] text-center">Nothing yet — add your first expense with the + button.</p>
             </div>
           )}
         </div>

@@ -8,7 +8,7 @@ always-available offline fallback. Both emit the same draft contract:
 
     description, amount_paise, category, payer_name, i_paid,
     participant_names, split_type, exact_amounts_paise, mentioned_names,
-    confidence, source ("llm" | "rules")
+    expense_date ("YYYY-MM-DD" | None), confidence, source ("llm" | "rules")
 
 Names in payer_name/participant_names are always canonical entries from the
 caller-supplied member list — never free text — so the client can map them to
@@ -16,6 +16,9 @@ user ids safely.
 """
 
 import re
+from datetime import date, timedelta
+
+from django.utils import timezone
 
 from .ai_llm import _match_member, parse_with_llm
 from .categories import categorize  # noqa: F401 — re-export; services + migration 0007 import it from here
@@ -37,9 +40,70 @@ _FILLER_RE = re.compile(
 )
 _STOP_NAMES = {"I", "Rs", "INR", "Split", "Paid", "Me", "Only"}
 
+# Dates (India convention: DD/MM). A leading "on "/"dated " is swallowed into the
+# match so it drops out of the description too. Month-name forms are tried before
+# the numeric form so "10 June" never reads as day/month digits.
+_MONTH_ALT = (
+    r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?"
+    r"|aug(?:ust)?|sep(?:t)?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?"
+)
+_MONTH_NUM = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+}
+_DP = r"(?:\bon\s+|\bdated\s+)?"  # optional preposition, consumed so it isn't left in the title
+_DATE_DMY_RE = re.compile(rf"{_DP}\b(\d{{1,2}})(?:st|nd|rd|th)?\s+({_MONTH_ALT})\.?(?:,?\s+(\d{{2,4}}))?\b", re.I)
+_DATE_MDY_RE = re.compile(rf"{_DP}\b({_MONTH_ALT})\.?\s+(\d{{1,2}})(?:st|nd|rd|th)?(?:,?\s+(\d{{2,4}}))?\b", re.I)
+_DATE_NUM_RE = re.compile(rf"{_DP}\b(\d{{1,2}})[/-](\d{{1,2}})(?:[/-](\d{{2,4}}))?\b")
+_REL_DATE_RE = re.compile(r"\b(today|aaj|yesterday)\b", re.I)
+
 
 def _rupee_value(match: re.Match) -> float:
     return float(match.group(1)) * (1000 if match.group(2) else 1)
+
+
+def _build_date(month: int, day: int, year: int | None, today: date) -> str | None:
+    """Assemble YYYY-MM-DD. No year given → the most recent past occurrence
+    (expenses are never future-dated). Impossible dates → None."""
+    try:
+        if year is not None:
+            return date(year + 2000 if year < 100 else year, month, day).isoformat()
+        candidate = date(today.year, month, day)
+        if candidate > today:
+            candidate = date(today.year - 1, month, day)
+        return candidate.isoformat()
+    except ValueError:
+        return None
+
+
+def _find_date(text: str, today: date) -> tuple[str | None, re.Match | None]:
+    """First date mention as (iso, match). Relative words win; then D-Mon,
+    Mon-D, and finally numeric DD/MM. Match span lets the caller strip the
+    date phrase out of the description."""
+    rel = _REL_DATE_RE.search(text)
+    if rel:
+        word = rel.group(1).lower()
+        d = today if word in ("today", "aaj") else today - timedelta(days=1)
+        return d.isoformat(), rel
+    m = _DATE_DMY_RE.search(text)
+    if m:
+        iso = _build_date(_MONTH_NUM[m.group(2)[:3].lower()], int(m.group(1)),
+                          int(m.group(3)) if m.group(3) else None, today)
+        if iso:
+            return iso, m
+    m = _DATE_MDY_RE.search(text)
+    if m:
+        iso = _build_date(_MONTH_NUM[m.group(1)[:3].lower()], int(m.group(2)),
+                          int(m.group(3)) if m.group(3) else None, today)
+        if iso:
+            return iso, m
+    m = _DATE_NUM_RE.search(text)
+    if m:
+        iso = _build_date(int(m.group(2)), int(m.group(1)),
+                          int(m.group(3)) if m.group(3) else None, today)
+        if iso:
+            return iso, m
+    return None, None
 
 
 def _find_amount(text: str) -> tuple[int | None, re.Match | None]:
@@ -75,6 +139,11 @@ def parse_natural_language(
     """
     members = member_names or []
     text = re.sub(r"(?<=\d),(?=\d)", "", text)  # "1,800" → "1800"
+    # Pull the date out first so its day number can't be mistaken for the amount
+    # ("coffee 12 on 15 May") and so it drops out of the derived description.
+    expense_date, date_match = _find_date(text, timezone.localdate())
+    if date_match:
+        text = text[: date_match.start()] + " " + text[date_match.end():]
     amount_paise, amount_match = _find_amount(text)
 
     if amount_paise is not None and _PER_PERSON_RE.search(text):
@@ -114,7 +183,7 @@ def parse_natural_language(
     for n in mentioned:
         description = re.sub(rf"\b{re.escape(n.split()[0])}\b", "", description, flags=re.I)
     description = _FILLER_RE.sub("", description)
-    description = re.sub(r"[₹,.]", " ", description)
+    description = re.sub(r"[₹,.:;]", " ", description)
     description = re.sub(r"\s+", " ", description).strip() or "Expense"
 
     return {
@@ -127,6 +196,7 @@ def parse_natural_language(
         "split_type": "equal",
         "exact_amounts_paise": None,
         "mentioned_names": mentioned,
+        "expense_date": expense_date,
         "confidence": 0.9 if amount_paise is not None else 0.4,
         "source": "rules",
     }

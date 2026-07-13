@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient, ApiError, type User } from '../api.js';
 import { useStore } from '../store.js';
@@ -9,17 +9,26 @@ const TYPES = [
   { key: 'trip', label: 'Trip', icon: 'flight_takeoff' },
   { key: 'home', label: 'Home', icon: 'home' },
   { key: 'couple', label: 'Couple', icon: 'favorite' },
+  { key: 'personal', label: 'Personal', icon: 'person' },
   { key: 'other', label: 'Other', icon: 'more_horiz' },
 ];
 
 export function CreateGroup() {
-  const { me, reloadGroups, reloadUsers } = useStore();
+  const { me, groups, reloadGroups, reloadUsers } = useStore();
   const nav = useNavigate();
   const [name, setName] = useState('');
   const [type, setType] = useState('trip');
+  const [customType, setCustomType] = useState('');
   const [rotation, setRotation] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Custom types this user already created (stored as free text on their
+  // groups) come back as first-class picker tiles.
+  const customTypes = useMemo(() => {
+    const std = new Set(TYPES.map((t) => t.key));
+    return [...new Set(groups.map((g) => g.type).filter((t) => t && !std.has(t)))];
+  }, [groups]);
 
   const [q, setQ] = useState('');
   const [results, setResults] = useState<User[]>([]);
@@ -41,17 +50,24 @@ export function CreateGroup() {
   const pickedIds = new Set(picked.map((u) => u.id));
   const suggestions = (q.trim().length >= 2 ? results : friends).filter((u) => u.id !== me?.id && !pickedIds.has(u.id));
 
-  function pick(u: User) { setPicked((p) => [...p, u]); }
+  // Clearing the query also dismisses the invite card that a no-match search
+  // (e.g. a partial phone number) may have left behind.
+  function pick(u: User) { setPicked((p) => [...p, u]); setQ(''); setResults([]); }
   function unpick(id: number) { setPicked((p) => p.filter((u) => u.id !== id)); }
+
+  // Personal tracker = solo spend log: no other members, no Turn to Pay.
+  const isPersonal = type === 'personal';
 
   async function create() {
     if (!me || busy) return;
     if (!name.trim()) { setErr('Give your group a name'); return; }
+    const finalType = type === 'other' && customType.trim() ? customType.trim() : type;
     setBusy(true); setErr(null);
     try {
       const g = await apiClient.createGroup({
-        name: name.trim(), type, created_by: me.id, member_ids: picked.map((u) => u.id),
-        rotation_enabled: rotation, rotation_mode: 'balanced',
+        name: name.trim(), type: finalType, created_by: me.id,
+        member_ids: isPersonal ? [] : picked.map((u) => u.id),
+        rotation_enabled: isPersonal ? false : rotation, rotation_mode: 'balanced',
       });
       reloadGroups();
       reloadUsers();
@@ -76,23 +92,42 @@ export function CreateGroup() {
         <section className="flex flex-col gap-3">
           <h3 className="font-body text-[16px] font-semibold text-neutral-600">Group type</h3>
           <div className="grid grid-cols-4 gap-3">
-            {TYPES.map((t) => {
+            {[...TYPES, ...customTypes.map((t) => ({ key: t, label: t, icon: 'label' }))].map((t) => {
               const active = type === t.key;
               return (
                 <button
                   key={t.key}
                   onClick={() => setType(t.key)}
-                  className={`h-[84px] rounded-card flex flex-col items-center justify-center gap-1.5 transition-all active:scale-95 ${active ? 'bg-primary text-white shadow-tile-coral' : 'bg-surface shadow-soft text-secondary'}`}
+                  className={`h-[84px] rounded-card flex flex-col items-center justify-center gap-1.5 px-1 transition-all active:scale-95 ${active ? 'bg-primary text-white shadow-tile-coral' : 'bg-surface shadow-soft text-secondary'}`}
                 >
                   <Icon name={t.icon} fill={active} style={{ fontSize: 26 }} />
-                  <span className="text-[11px] font-bold">{t.label}</span>
+                  <span className="text-[11px] font-bold max-w-full truncate">{t.label}</span>
                 </button>
               );
             })}
           </div>
+          {type === 'other' && (
+            <input
+              value={customType}
+              onChange={(e) => setCustomType(e.target.value)}
+              maxLength={24}
+              className="input-warm shadow-soft"
+              placeholder="Name your own type — e.g. Office, Society"
+            />
+          )}
         </section>
 
-        {/* Add Members */}
+        {isPersonal && (
+          <div className="flex items-start gap-3 bg-teal/10 rounded-card p-4">
+            <Icon name="person" fill className="text-tertiary mt-0.5" style={{ fontSize: 22 }} />
+            <p className="font-body text-[13.5px] font-semibold text-neutral-600 leading-snug">
+              A personal tracker is just you — log your own spending and see it in Insights. No members, no balances, no settling up.
+            </p>
+          </div>
+        )}
+
+        {/* Add Members — a personal tracker is solo, so nothing to add */}
+        {!isPersonal && (
         <section className="flex flex-col gap-4">
           <div className="flex items-end justify-between">
             <h2 className="font-body text-[16px] font-semibold text-neutral-600">Add members</h2>
@@ -159,8 +194,10 @@ export function CreateGroup() {
             </div>
           )}
         </section>
+        )}
 
         {/* Features */}
+        {!isPersonal && (
         <section className="flex flex-col gap-3">
           <h2 className="font-body text-[16px] font-semibold text-neutral-600">Features</h2>
           <div className="flex items-start gap-3">
@@ -176,11 +213,13 @@ export function CreateGroup() {
             <Toggle on={rotation} onChange={setRotation} />
           </div>
         </section>
+        )}
 
         {err && <p className="text-danger font-body text-[13px] font-semibold">{err}</p>}
       </main>
 
-      <div className="fixed bottom-0 left-0 right-0 max-w-[28rem] mx-auto px-6 pb-5 pt-3 safe-bottom bg-gradient-to-t from-paper via-paper to-transparent">
+      {/* z-10: must sit above the monzo-sheet (z-1) or its content eats taps */}
+      <div className="fixed bottom-0 left-0 right-0 z-10 max-w-[28rem] mx-auto px-6 pb-5 pt-3 safe-bottom bg-gradient-to-t from-paper via-paper to-transparent">
         <button onClick={create} disabled={busy} className="btn-coral justify-center text-[17px]">
           {busy ? 'Creating…' : 'Create Group'}
         </button>

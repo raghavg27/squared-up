@@ -12,10 +12,12 @@ integer paise, never trusted from the model.
 import json
 import logging
 import time
+from datetime import date
 from decimal import Decimal, InvalidOperation
 
 import requests
 from django.conf import settings
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +50,7 @@ _RESPONSE_SCHEMA = {
             },
         },
         "category": {"type": "STRING", "enum": CATEGORIES},
+        "expense_date": {"type": "STRING", "nullable": True},
         "confidence": {"type": "NUMBER"},
     },
     "required": [
@@ -65,6 +68,7 @@ _PROMPT = """You extract an expense draft from one short message typed into a bi
 
 Group members: {members}
 The person typing is: {self_name}
+Today's date is {today} (YYYY-MM-DD), timezone Asia/Kolkata.
 
 Message: {text}
 
@@ -78,6 +82,7 @@ Extraction rules:
 - split_type: "exact" only when specific amounts are tied to specific people ("Rahul owes 300", "mera 200 uska 400"), else "equal".
 - exact_shares: when split_type is "exact", one entry per participant with their rupee share; shares must add up to the total. Empty list otherwise.
 - category: best fit from the allowed list, else "Other".
+- expense_date: the date the expense happened as YYYY-MM-DD, resolved relative to today's date ("on 10 June", "yesterday", "kal", "2 din pehle", "last Friday"). Never a future date. null when the message states no date.
 - confidence: 0 to 1, your overall certainty.
 - NEVER invent a name. If the message names someone not in the members list, leave them out of payer/participants entirely.
 """
@@ -109,6 +114,18 @@ def _to_paise(rupees: object) -> int | None:
     return int((value * 100).quantize(Decimal("1")))
 
 
+def _valid_date(value: object, today: date) -> str | None:
+    """Accept a model-emitted YYYY-MM-DD only if it parses and isn't in the
+    future — expenses are never future-dated. Anything else → None."""
+    if not isinstance(value, str):
+        return None
+    try:
+        d = date.fromisoformat(value)
+    except ValueError:
+        return None
+    return d.isoformat() if d <= today else None
+
+
 def _resolve_amount(raw: dict, participant_count: int, group_size: int) -> tuple[int | None, bool]:
     """Total in paise. Per-head amounts multiply by the best-known head count;
     returns (amount_paise, count_was_known) so callers can lower confidence
@@ -125,9 +142,10 @@ def _resolve_amount(raw: dict, participant_count: int, group_size: int) -> tuple
     return per, False
 
 
-def _normalize(raw: dict, member_names: list[str], self_name: str) -> dict:
+def _normalize(raw: dict, member_names: list[str], self_name: str, today: date | None = None) -> dict:
     """Turn a schema-shaped Gemini reply into the draft contract, enforcing
     member-list matching and balanced exact shares."""
+    today = today or timezone.localdate()
     participants: list[str] = []
     for n in raw.get("participants") or []:
         m = _match_member(str(n), member_names)
@@ -186,6 +204,7 @@ def _normalize(raw: dict, member_names: list[str], self_name: str) -> dict:
         "split_type": split_type,
         "exact_amounts_paise": exact_amounts,
         "mentioned_names": participants,
+        "expense_date": _valid_date(raw.get("expense_date"), today),
         "confidence": confidence,
         "source": "llm",
     }
@@ -197,9 +216,11 @@ def parse_with_llm(text: str, member_names: list[str], self_name: str) -> dict |
     api_key = getattr(settings, "GEMINI_API_KEY", "")
     if not api_key:
         return None
+    today = timezone.localdate()
     prompt = _PROMPT.format(
         members=json.dumps(member_names, ensure_ascii=False),
         self_name=self_name or "the user",
+        today=today.isoformat(),
         text=json.dumps(text, ensure_ascii=False),
     )
     body = {
@@ -224,7 +245,7 @@ def parse_with_llm(text: str, member_names: list[str], self_name: str) -> dict |
         raw = json.loads(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
         if not isinstance(raw, dict):
             return None
-        return _normalize(raw, member_names, self_name)
+        return _normalize(raw, member_names, self_name, today)
     except Exception:  # noqa: BLE001 — any failure means "use the rules parser"
         logger.warning("Gemini parse failed; falling back to rules", exc_info=True)
         return None

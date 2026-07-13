@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { apiClient, ApiError, type Group, type User } from '../api.js';
 import { useStore } from '../store.js';
+import { useToast } from '../toast.js';
 import { Avatar, Icon, InviteCard } from '../ui.js';
 import { PageBanner } from '../banners.js';
 import { shareInvite } from '../invite.js';
@@ -11,16 +12,24 @@ export function AddMember() {
   const gid = Number(id);
   const nav = useNavigate();
   const { me, reloadUsers } = useStore();
+  const { showToast } = useToast();
   const [group, setGroup] = useState<Group | null>(null);
   const [q, setQ] = useState('');
   const [results, setResults] = useState<User[]>([]);
   const [friends, setFriends] = useState<User[]>([]);
-  const [busyId, setBusyId] = useState<number | null>(null);
+  const [hasExpenses, setHasExpenses] = useState(false);
+  // Person picked but not yet added: we first ask whether they should share
+  // the group's past expenses. `share` = also send them a join link after.
+  const [pending, setPending] = useState<{ user: User; share: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>();
 
-  const load = () => apiClient.group(gid).then(setGroup).catch(() => {});
-  useEffect(() => { load(); apiClient.friends().then(setFriends).catch(() => {}); }, [gid]);
+  useEffect(() => {
+    apiClient.group(gid).then(setGroup).catch(() => {});
+    apiClient.friends().then(setFriends).catch(() => {});
+    apiClient.expenses(gid).then((es) => setHasExpenses(es.length > 0)).catch(() => {});
+  }, [gid]);
 
   useEffect(() => {
     clearTimeout(timer.current);
@@ -33,33 +42,30 @@ export function AddMember() {
 
   const memberIds = new Set(group?.members ?? []);
 
-  async function add(u: User) {
-    if (busyId) return;
-    setBusyId(u.id); setErr(null);
-    try { const g = await apiClient.addMember(gid, u.id); setGroup(g); }
-    catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not add'); }
-    finally { setBusyId(null); }
+  // No expenses yet → nothing to back-include, skip the question entirely.
+  function pick(u: User, share: boolean) {
+    if (busy) return;
+    if (hasExpenses) setPending({ user: u, share });
+    else void finish(u, false, share);
   }
 
-  async function addInvited(u: User) {
-    setBusyId(-1); setErr(null);
+  async function finish(u: User, includeHistory: boolean, share: boolean) {
+    setBusy(true); setErr(null);
     try {
-      const g = await apiClient.addMember(gid, u.id);
-      setGroup(g); reloadUsers(); setQ('');
-    } catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not invite'); }
-    finally { setBusyId(null); }
-  }
-
-  // Add the placeholder to the group AND share a join link, so balances track
-  // now and the person inherits them when they sign in with that contact.
-  async function shareInvited(u: User) {
-    setBusyId(-1); setErr(null);
-    try {
-      const g = await apiClient.addMember(gid, u.id);
-      setGroup(g); reloadUsers(); setQ('');
-      await shareInvite(u, me?.name ?? '', group?.name);
-    } catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not invite'); }
-    finally { setBusyId(null); }
+      const g = await apiClient.addMember(gid, u.id, includeHistory);
+      reloadUsers(); // placeholder invitees must resolve in name() immediately
+      if (share) await shareInvite(u, me?.name ?? '', group?.name);
+      const n = g.history_included;
+      showToast(
+        `${u.name || 'Member'} added to ${group?.name ?? 'the group'}` +
+        (n > 0 ? ` — split into ${n} past expense${n === 1 ? '' : 's'}` : ''),
+      );
+      nav(-1); // back to Group Settings
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : 'Could not add — try again');
+      setPending(null);
+      setBusy(false);
+    }
   }
 
   const suggestions = q.trim().length >= 2 ? results : friends;
@@ -107,20 +113,47 @@ export function AddMember() {
                 {inGroup ? (
                   <span className="font-body text-[13px] font-bold text-teal flex items-center gap-1"><Icon name="check" style={{ fontSize: 18 }} />Added</span>
                 ) : (
-                  <button onClick={() => add(u)} disabled={busyId === u.id} className="px-5 h-9 rounded-full bg-primary text-on-primary font-body text-[14px] font-bold shadow-soft active:scale-95 transition-transform disabled:opacity-60">Add</button>
+                  <button onClick={() => pick(u, false)} disabled={busy} className="px-5 h-9 rounded-full bg-primary text-on-primary font-body text-[14px] font-bold shadow-soft active:scale-95 transition-transform disabled:opacity-60">Add</button>
                 )}
               </div>
             );
           })}
 
           {q.trim().length >= 2 && visible.length === 0 && (
-            <InviteCard query={q} busy={busyId === -1} onInvite={addInvited} onInviteLink={shareInvited} />
+            <InviteCard query={q} busy={busy} onInvite={(u) => pick(u, false)} onInviteLink={(u) => pick(u, true)} />
           )}
           {q.trim().length < 2 && visible.length === 0 && (
             <p className="font-body text-[15px] font-semibold text-neutral-600 text-center py-4">Search to add friends or family to this group.</p>
           )}
         </div>
       </main>
+
+      {/* Include-in-history choice — asked once per add, before anything saves */}
+      {pending && (
+        <div className="fixed inset-0 z-50 bg-ink/40 flex flex-col justify-end max-w-[28rem] mx-auto" onClick={() => !busy && setPending(null)}>
+          <div className="bg-surface-container-lowest rounded-t-[36px] px-6 pt-3 pb-8 sheet-up" onClick={(e) => e.stopPropagation()}>
+            <span className="sheet-handle" />
+            <h2 className="font-heading text-[20px] font-extrabold text-ink text-center mt-2">
+              Add {pending.user.name || 'this person'} to {group?.name ?? 'the group'}?
+            </h2>
+            <p className="font-body text-[14px] font-semibold text-neutral-600 text-center mt-2 leading-snug">
+              Should they also share the group's existing expenses? Only evenly-split ones are re-split — exact and itemized splits stay as they are.
+            </p>
+            <div className="flex flex-col gap-3 mt-5">
+              <button onClick={() => finish(pending.user, true, pending.share)} disabled={busy} className="btn-coral justify-center text-[16px] disabled:opacity-60">
+                {busy ? 'Adding…' : 'Include past expenses'}
+              </button>
+              <button
+                onClick={() => finish(pending.user, false, pending.share)}
+                disabled={busy}
+                className="w-full h-[52px] rounded-full bg-surface shadow-soft text-ink font-heading text-[15px] font-bold active:scale-[0.98] transition-transform disabled:opacity-60"
+              >
+                Only new expenses
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

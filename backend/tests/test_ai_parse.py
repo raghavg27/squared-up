@@ -4,13 +4,15 @@ behaviour is exercised separately by the stress script; these tests must be
 deterministic."""
 
 import json
+from datetime import date, timedelta
 from unittest import mock
 
 import pytest
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from core.ai import parse_expense, parse_natural_language, categorize
-from core.ai_llm import _match_member, _normalize, parse_with_llm
+from core.ai_llm import _match_member, _normalize, _valid_date, parse_with_llm
 from core.auth import issue_tokens
 from core.models import User
 
@@ -248,6 +250,74 @@ def test_rules_no_amount_low_confidence():
     assert d["amount_paise"] is None and d["confidence"] < 0.5
 
 
+# ── rules date extraction ──
+
+def test_rules_date_day_month_year():
+    # The reported bug: date + description + amount all survive the same message.
+    d = parse_natural_language("Gifts for everyone: 5000 on 10 January 2024, paid by me", MEMBERS, ME)
+    assert d["expense_date"] == "2024-01-10"
+    assert d["amount_paise"] == 500000
+    assert d["i_paid"] is True
+    assert "10" not in d["description"] and "january" not in d["description"].lower()
+    assert d["description"].strip().lower().startswith("gifts for everyone")
+
+
+def test_rules_date_month_day():
+    assert parse_natural_language("lunch 300 on Jun 5 2023", MEMBERS, ME)["expense_date"] == "2023-06-05"
+
+
+def test_rules_date_numeric_ddmm():
+    # India convention: DD/MM.
+    assert parse_natural_language("auto 150 on 03/06/2022", MEMBERS, ME)["expense_date"] == "2022-06-03"
+
+
+def test_rules_date_relative_yesterday():
+    yday = (timezone.localdate() - timedelta(days=1)).isoformat()
+    assert parse_natural_language("coffee 80 yesterday", MEMBERS, ME)["expense_date"] == yday
+
+
+def test_rules_date_yearless_rolls_back_when_future():
+    today = timezone.localdate()
+    future = today + timedelta(days=40)
+    d = parse_natural_language(f"party 1000 on {future.day} {future.strftime('%B')}", MEMBERS, ME)
+    assert date.fromisoformat(d["expense_date"]) <= today
+
+
+def test_rules_date_absent_is_none():
+    assert parse_natural_language("dinner 500 I paid", MEMBERS, ME)["expense_date"] is None
+
+
+def test_rules_date_not_confused_by_small_amount():
+    # "12" is the amount, "15 May" is the date — the date must not steal it.
+    d = parse_natural_language("coffee 12 on 15 May 2024", MEMBERS, ME)
+    assert d["amount_paise"] == 1200 and d["expense_date"] == "2024-05-15"
+
+
+# ── LLM date validation ──
+
+def test_valid_date_accepts_past():
+    assert _valid_date("2024-01-10", date(2026, 7, 13)) == "2024-01-10"
+
+
+def test_valid_date_rejects_future():
+    assert _valid_date("2030-01-01", date(2026, 7, 13)) is None
+
+
+def test_valid_date_rejects_garbage():
+    assert _valid_date("not-a-date", date(2026, 7, 13)) is None
+    assert _valid_date(None, date(2026, 7, 13)) is None
+
+
+def test_normalize_passes_valid_date():
+    d = _normalize(_raw(expense_date="2024-01-10"), MEMBERS, ME, date(2026, 7, 13))
+    assert d["expense_date"] == "2024-01-10"
+
+
+def test_normalize_drops_future_date():
+    d = _normalize(_raw(expense_date="2099-01-01"), MEMBERS, ME, date(2026, 7, 13))
+    assert d["expense_date"] is None
+
+
 def test_categorize_default():
     assert categorize("weird unknown thing") == "Other"
     assert categorize("uber to airport") == "Transport"
@@ -276,7 +346,7 @@ class TestEndpoint:
         assert r.status_code == 200
         for key in ("description", "amount_paise", "category", "payer_name", "i_paid",
                     "participant_names", "split_type", "exact_amounts_paise",
-                    "mentioned_names", "confidence", "source"):
+                    "mentioned_names", "expense_date", "confidence", "source"):
             assert key in r.data
         assert r.data["amount_paise"] == 180000
         assert r.data["payer_name"] == "Raghav Gupta"

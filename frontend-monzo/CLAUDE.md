@@ -47,6 +47,7 @@ origin or the button 403s (phone OTP is unaffected).
 | `AddExpense.tsx` | Add-expense sheet (group and personal) — NL-parse-first, saves with an Undo toast. Top-level, not in screens/. |
 | `ExpenseForm.tsx` | Shared expense form: `useExpenseForm()` state/money-math hook + `ExpenseFormFields` (amount, description, date chip, category chip picker from `EXPENSE_CATEGORIES` — auto-suggested, user tap overrides; collapsible payer/split/participants; `itemize` prop hides the split editor). Used by `AddExpense` and `EditExpense`. |
 | `ItemizeEditor.tsx` | Receipt itemization UI: scan a photo (`/ai/itemize` vision) or paste bill text, or add lines manually; tag each line with who shared it. `validateItems()` checks items vs. the grand total. Used by `AddExpense`. |
+| `activityRows.tsx` | Shared activity-event renderer: `renderActivity()` (event → title/icon/amount row), `ActivityRow`, `activityBucket`. Used by `ActivityFeed` and Home's Recent activity, so deletes/comments/settlements read identically everywhere. |
 | `charts.tsx` | Dependency-free SVG/flex charts for Insights: `CategoryDonut`, `MonthlyBars`, `GroupBars`, `StatTile`, plus `catColor`/`catIcon`. |
 | `toast.tsx` | `ToastProvider` + `useToast()` — global bottom toast with optional action (e.g. Undo). Mounted in `main.tsx`. |
 | `dataEvents.ts` | `emitDataChanged()` / `useDataChanged()` — window event telling screens to refetch after out-of-band mutations (e.g. Undo). |

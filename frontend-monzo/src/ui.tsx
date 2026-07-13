@@ -85,13 +85,16 @@ export function categoryFor(text: string): CatStyle {
   return categoryStyle(undefined, text);
 }
 
-// Group-type → icon + swatch, for group cards.
+// Group-type → icon + swatch, for group cards. Anything outside the standard
+// set is a user-defined custom type (free text) and gets the label icon.
 export function groupTypeStyle(type: string): { icon: string; tint: string; fg: string } {
   switch (type) {
     case 'trip': return { icon: 'flight_takeoff', tint: 'bg-primary/10', fg: 'text-primary' };
     case 'home': return { icon: 'home', tint: 'bg-secondary-container', fg: 'text-secondary' };
     case 'couple': return { icon: 'favorite', tint: 'bg-primary/10', fg: 'text-primary' };
-    default: return { icon: 'group', tint: 'bg-surface-container-high', fg: 'text-secondary' };
+    case 'personal': return { icon: 'person', tint: 'bg-teal/15', fg: 'text-tertiary' };
+    case 'other': return { icon: 'group', tint: 'bg-surface-container-high', fg: 'text-secondary' };
+    default: return { icon: 'label', tint: 'bg-surface-container-high', fg: 'text-secondary' };
   }
 }
 
@@ -110,7 +113,7 @@ export function Avatar({ name, size = 40, me }: { name: string; size?: number; m
       className={`rounded-full flex items-center justify-center font-heading font-semibold shrink-0 ${color}`}
       style={{ width: size, height: size, fontSize: size * 0.42 }}
     >
-      {me ? 'You' : initial}
+      {initial}
     </div>
   );
 }
@@ -161,13 +164,15 @@ export function InviteCard({ query, busy, onInvite, onInviteLink }: {
       {needsName ? (
         <>
           <p className="font-body text-[15px] font-medium text-ink text-center">Invite <span className="tnum">{query.trim()}</span></p>
+          {/* No autoFocus: this card can appear mid-typing (a partial phone
+              number already looks phone-like) and must not steal the caret
+              from the search box. */}
           <input
             value={inviteName}
             onChange={(e) => setInviteName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && create(onInvite)}
             className="input-warm text-center"
             placeholder="Their name"
-            autoFocus
           />
         </>
       ) : (

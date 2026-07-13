@@ -74,11 +74,13 @@ class Friendship(models.Model):
 
 
 class Group(models.Model):
-    TYPE_CHOICES = [("trip", "trip"), ("home", "home"), ("couple", "couple"), ("other", "other")]
     ROTATION_MODE_CHOICES = [("balanced", "balanced"), ("round_robin", "round_robin")]
 
     name = models.TextField()
-    type = models.CharField(max_length=10, choices=TYPE_CHOICES, default="other")
+    # Deviation from Spec §2 `group_type` enum: free text so users can define
+    # their own types ("Office", "Society") beyond trip/home/couple/other.
+    # Validation (standard set or 2-24 chars) lives in validate_create_group.
+    type = models.CharField(max_length=24, default="other")
     cover_url = models.TextField(null=True, blank=True)
     base_currency = models.CharField(max_length=3, default="INR")
     default_split_config = models.JSONField(null=True, blank=True)

@@ -25,6 +25,7 @@ from domain import (
 
 from .ai import categorize
 from .expense_items import split_from_items, persist_items, items_of
+from .membership_service import befriend, include_member_in_history
 from .models import (
     User,
     Group,
@@ -332,27 +333,35 @@ def remove_friend(user_id: int, other_id: int) -> dict:
 
 # ── Group membership management ──────────────────────────────────────────────
 
-def add_group_member(group_id: int, actor_id: int, user_id: int) -> dict:
+def add_group_member(group_id: int, actor_id: int, user_id: int, include_history: bool = False) -> dict:
     g = Group.objects.filter(id=group_id, deleted_at__isnull=True).first()
     if not g:
         raise DomainError("NOT_FOUND", "group not found")
+    if g.type == "personal":
+        raise DomainError("VALIDATION_ERROR", "a personal tracker is just you — no other members")
     if not is_active_member(group_id, actor_id):
         raise DomainError("FORBIDDEN", "only members can add people")
     if not User.objects.filter(id=user_id).exists():
         raise DomainError("NOT_FOUND", "user not found")
-    existing = GroupMember.objects.filter(group_id=group_id, user_id=user_id).first()
-    if existing:
-        if existing.left_at is not None:
-            existing.left_at = None
-            existing.save(update_fields=["left_at"])
-    else:
-        GroupMember.objects.create(group_id=group_id, user_id=user_id, role="member", in_rotation=g.rotation_enabled)
-    # Round-robin order must track membership or the cursor points at ghosts.
-    if g.rotation_mode == "round_robin" and g.rotation_enabled and user_id not in g.rotation_rr_order:
-        g.rotation_rr_order = [*g.rotation_rr_order, user_id]
-        g.save(update_fields=["rotation_rr_order"])
-    log_activity(actor_id, "group.member_added", f"group:{group_id}", {"user_id": user_id})
-    return get_group(group_id)
+    with transaction.atomic():
+        existing = GroupMember.objects.filter(group_id=group_id, user_id=user_id).first()
+        if existing:
+            if existing.left_at is not None:
+                existing.left_at = None
+                existing.save(update_fields=["left_at"])
+        else:
+            GroupMember.objects.create(group_id=group_id, user_id=user_id, role="member", in_rotation=g.rotation_enabled)
+        # Round-robin order must track membership or the cursor points at ghosts.
+        if g.rotation_mode == "round_robin" and g.rotation_enabled and user_id not in g.rotation_rr_order:
+            g.rotation_rr_order = [*g.rotation_rr_order, user_id]
+            g.save(update_fields=["rotation_rr_order"])
+        # Optionally fold the newcomer into past equal-split expenses (the
+        # caller asked "were they always part of these costs?" and said yes).
+        included = include_member_in_history(group_id, user_id) if include_history else 0
+        befriend(active_members(group_id).values_list("user_id", flat=True))
+    log_activity(actor_id, "group.member_added", f"group:{group_id}",
+                 {"user_id": user_id, "history_included": included})
+    return {**get_group(group_id), "history_included": included}
 
 
 def remove_group_member(group_id: int, actor_id: int, user_id: int) -> dict:
@@ -439,6 +448,7 @@ def create_group(data: dict) -> dict:
             role="owner" if uid == data["created_by"] else "member",
             in_rotation=data["rotation_enabled"],
         )
+    befriend(member_ids)
     log_activity(data["created_by"], "group.created", f"group:{g.id}", {"name": g.name})
     return group_to_dict(g)
 
