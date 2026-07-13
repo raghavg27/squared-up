@@ -43,6 +43,7 @@ Everything is re-exported from `domain/__init__.py`.
 | `ai_itemize.py` | Receipt itemization (`/ai/itemize`): Gemini **vision** (photo) or text → draft line items; deterministic line parser fallback. Draft only; money in paise. |
 | `expense_items.py` | Itemized-bill helpers: `split_from_items()` (items → `exact` split via `domain.itemize`), `persist_items()`, `items_of()`. Keeps item logic out of `services.py`. |
 | `analytics.py` | `spending_summary()` — the caller's own `owed` share aggregated by category / month / group for the Insights screen (`/analytics/summary`). Read-only. |
+| `feedback_service.py` | `submit_feedback()` — store a user's issue report / product feedback (`POST /feedback`). Actor from JWT; kept out of the oversized `services.py`. |
 | `exports.py` | `build_group_xlsx(group_id, actor)` → `(bytes, filename)`. Splitwise-style ledger: expense + confirmed-settlement rows, per-member net columns, `Total balance` footer reconciling to `group_balances` (§6). Paise→rupees only here. Needs `openpyxl`. |
 | `urls.py` | Full route table with comments — **read this first to find an endpoint**. |
 | `management/commands/seed.py` | Demo data (`python manage.py seed`, or `SEED_DEMO=1` in Docker). |

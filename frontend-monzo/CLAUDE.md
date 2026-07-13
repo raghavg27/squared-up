@@ -58,7 +58,9 @@ Routes are defined in `App.tsx`; screen files match their names
 (`/groups/:id` → `GroupDetail.tsx`, `/settle/:groupId/:toUserId` → `SettleUp.tsx`,
 `/expense/:id` → `ExpenseDetail.tsx`, etc.). Auth screens: `Login`, `OtpVerify`,
 `Onboarding`. Tab roots: `Home`, `GroupsList`, `Insights` (`/insights` — spending
-charts/analytics), `ActivityFeed`, `Profile`.
+charts/analytics), `ActivityFeed`, `Profile`. Profile sub-screens:
+`EditProfile` (`/profile/edit`), `UpiAppSettings` (`/profile/upi-app`),
+`Feedback` (`/profile/feedback` — bug report / product feedback → `POST /feedback`).
 Home's Monzo pieces live in their own modules: `BalanceDonut.tsx` (the hero
 donut — teal owed / red owe arcs, sweep animation) and `SquareUpMoves.tsx`
 (the coral Square-Up pill + per-person pay/remind list).

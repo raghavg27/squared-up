@@ -49,6 +49,7 @@ urlpatterns = [
     path("ai/categorize", views.ai_categorize),
     path("ai/itemize", views.ai_itemize),  # POST receipt photo/text → line items
     path("activity", views.activity_feed),
+    path("feedback", views.feedback),  # POST issue report / product feedback
 
     # ── Analytics / Insights ──
     path("analytics/summary", views.analytics_summary),  # GET spending breakdowns

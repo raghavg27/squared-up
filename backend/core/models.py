@@ -229,6 +229,22 @@ class ActivityEvent(models.Model):
         db_table = "activity_events"
 
 
+class Feedback(models.Model):
+    """A user-submitted issue report or product feedback. The app is early-stage,
+    so this is a lightweight catch-all inbox tied to the submitting user."""
+
+    KIND_CHOICES = [("issue", "issue"), ("feedback", "feedback")]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="feedback")
+    kind = models.CharField(max_length=8, choices=KIND_CHOICES, default="feedback")
+    message = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "feedback"
+        indexes = [models.Index(fields=["user", "created_at"], name="idx_feedback_user")]
+
+
 class IdempotencyRecord(models.Model):
     """Stores the response body for a mutating request so replays are safe (I9)."""
 

@@ -47,6 +47,7 @@ export function Profile() {
         <SettingRow icon="receipt_long" title="Activity" sub="Your recent transactions" onClick={() => nav('/activity')} />
         <SettingRow icon="person" title="Edit profile" sub="Name, email, UPI ID" onClick={() => nav('/profile/edit')} />
         <SettingRow icon="account_balance_wallet" title="Primary UPI App" sub={getUpiApp().label} onClick={() => nav('/profile/upi-app')} />
+        <SettingRow icon="feedback" title="Found an issue / Submit feedback" sub="Help us improve — we read everything" onClick={() => nav('/profile/feedback')} />
       </div>
 
       <button

@@ -19,6 +19,7 @@ import { ActivityFeed } from './screens/ActivityFeed.js';
 import { Insights } from './screens/Insights.js';
 import { Profile } from './screens/Profile.js';
 import { EditProfile } from './screens/EditProfile.js';
+import { Feedback } from './screens/Feedback.js';
 import { UpiAppSettings } from './screens/UpiApp.js';
 import { ExpenseDetail } from './screens/ExpenseDetail.js';
 import { EditExpense } from './screens/EditExpense.js';
@@ -92,6 +93,7 @@ export function App() {
         <Route path="/profile" element={<Profile />} />
         <Route path="/profile/edit" element={<EditProfile />} />
         <Route path="/profile/upi-app" element={<UpiAppSettings />} />
+        <Route path="/profile/feedback" element={<Feedback />} />
         <Route path="/expense/:id" element={<ExpenseDetail />} />
         <Route path="/expense/:id/edit" element={<EditExpense />} />
         <Route path="/settle/:groupId/:toUserId" element={<SettleUp />} />

@@ -81,6 +81,9 @@ export interface ActivityEvent {
   target: string | null;
   payload: Record<string, unknown>; created_at: string;
 }
+export interface Feedback {
+  id: number; kind: 'issue' | 'feedback'; message: string; created_at: string;
+}
 export interface OtpRequestResult { sent: boolean; phone: string; expires_in: number; dev_code?: string }
 export interface AuthResult { is_new: boolean; user: User; access: string; refresh: string }
 
@@ -248,6 +251,8 @@ export const apiClient = {
   itemize: (input: { text?: string; image_base64?: string; mime?: string }) =>
     req<ItemizeDraft>('/ai/itemize', { method: 'POST', body: JSON.stringify(input) }),
   activity: () => req<ActivityEvent[]>('/activity'),
+  submitFeedback: (message: string, kind: 'issue' | 'feedback' = 'feedback') =>
+    req<Feedback>('/feedback', { method: 'POST', body: JSON.stringify({ message, kind }) }),
 
   // Analytics / Insights
   analytics: (months = 6, groupId?: number) =>

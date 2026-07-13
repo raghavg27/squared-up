@@ -14,6 +14,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from . import services
+from . import feedback_service
 from .ai import parse_expense, categorize
 from .ai_itemize import itemize_bill
 from .analytics import spending_summary
@@ -296,3 +297,16 @@ def analytics_summary(request):
 @api_view(["GET"])
 def activity_feed(request):
     return Response(services.recent_activity(_actor(request)))
+
+
+# ── Feedback / issue reports ──
+@api_view(["POST"])
+def feedback(request):
+    message = request.data.get("message")
+    if not isinstance(message, str):
+        raise bad_request("VALIDATION_ERROR", "message (string) is required")
+    kind = request.data.get("kind")
+    return Response(
+        feedback_service.submit_feedback(_actor(request), message, kind if isinstance(kind, str) else "feedback"),
+        status=201,
+    )

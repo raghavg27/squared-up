@@ -353,3 +353,41 @@ def test_archive_group_owner_only(client):
     # Still active (nobody with rights archived it).
     _as(client, a)
     assert [g["id"] for g in client.get("/api/v1/groups").data] == [gid]
+
+
+def test_submit_feedback(client):
+    """Feedback POSTs are stored, tied to the acting user, and echoed back."""
+    from core.models import Feedback
+
+    a = _mk_user("Aarav")
+    _as(client, a)
+
+    r = client.post(
+        "/api/v1/feedback",
+        {"kind": "issue", "message": "  Split screen crashes on empty group  "},
+        format="json",
+    )
+    assert r.status_code == 201, r.data
+    assert r.data["kind"] == "issue"
+    assert r.data["message"] == "Split screen crashes on empty group"  # trimmed
+    assert r.data["created_at"]
+
+    row = Feedback.objects.get(id=r.data["id"])
+    assert row.user_id == a  # attributed to the JWT actor, not the body
+
+    # Unknown kind falls back to "feedback"; blank message is rejected.
+    assert client.post("/api/v1/feedback", {"message": "hi", "kind": "junk"}, format="json").data["kind"] == "feedback"
+    bad = client.post("/api/v1/feedback", {"message": "   "}, format="json")
+    assert bad.status_code == 422
+    assert bad.data["error"]["code"] == "VALIDATION_ERROR"
+
+    # A non-string message is rejected at the view boundary (400, not 422).
+    missing = client.post("/api/v1/feedback", {}, format="json")
+    assert missing.status_code == 400
+    assert missing.data["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_feedback_requires_auth(client):
+    r = client.post("/api/v1/feedback", {"message": "hello"}, format="json")
+    assert r.status_code == 401
+    assert r.data["error"]["code"] == "UNAUTHORIZED"
