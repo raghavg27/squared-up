@@ -13,9 +13,9 @@ import { SquareUpMoves } from './SquareUpMoves.js';
 // Groups render as Monzo "service tiles": solid colored squares with white
 // icons, cycling through the concept's tile colors.
 const TILE_TONES = [
-  { bg: '#7dc38e', shadow: 'shadow-tile-green' },
-  { bg: '#ff4d56', shadow: 'shadow-tile-coral' },
-  { bg: '#1e738d', shadow: 'shadow-tile-teal' },
+  { bg: '#7dc38e' },
+  { bg: '#ff4d56' },
+  { bg: '#1e738d' },
 ];
 
 export function Home() {
@@ -99,9 +99,6 @@ export function Home() {
       <CoralBanner title={`Hi ${firstName}`} sub={today} />
 
       {/* White sheet pulled up over the banner, Monzo "Balance" style. */}
-      {/* pb-10: tile glow shadows reach ~40px below the tiles — the sheet must
-          extend past them or its bottom edge cuts the glow and reads as a
-          stray line under the icons */}
       <main className="monzo-sheet mx-3 -mt-9 px-0 pb-10">
         <span className="sheet-handle" />
 
@@ -150,7 +147,7 @@ export function Home() {
                     <button
                       key={g.id}
                       onClick={() => nav(`/groups/${g.id}`)}
-                      className={`shrink-0 w-[104px] h-[104px] rounded-card ${tone.shadow} flex flex-col items-center justify-center gap-1.5 text-white active:scale-[0.96] transition-transform`}
+                      className="shrink-0 w-[104px] h-[104px] rounded-card flex flex-col items-center justify-center gap-1.5 text-white active:scale-[0.96] transition-transform"
                       style={{ background: tone.bg }}
                     >
                       <Icon name={st.icon} fill style={{ fontSize: 30 }} />

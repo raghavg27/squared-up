@@ -177,7 +177,7 @@ export function AddExpense() {
               onChange={(e) => setNl(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && runParse()}
               autoFocus
-              placeholder="Skip the form — Dinner 800 with Rahul on 10 Jun, I paid"
+              placeholder="Try — Dinner 800 with Rahul on 10 Jun, I paid"
               className="flex-1 bg-transparent outline-none font-body text-[16px] text-ink placeholder:text-secondary"
             />
             {nl && (

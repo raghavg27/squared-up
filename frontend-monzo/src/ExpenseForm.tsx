@@ -133,13 +133,17 @@ export function ExpenseFormFields({ form, members, open, onToggle, itemize = fal
         />
       </div>
 
-      {/* description */}
-      <input
-        value={f.desc}
-        onChange={(e) => f.setDesc(e.target.value)}
-        placeholder="What's it for? e.g. Dinner at Toit"
-        className="w-full text-center bg-transparent outline-none font-body text-[17px] text-ink placeholder:text-neutral-600 mt-3"
-      />
+      {/* description — same card treatment as the smart-entry box so the field
+          reads as a tappable input, not floating placeholder text */}
+      <div className="bg-neutral-100 rounded-card flex items-center gap-2 px-4 py-4 mt-4">
+        <Icon name="edit" className="text-secondary" style={{ fontSize: 22 }} />
+        <input
+          value={f.desc}
+          onChange={(e) => f.setDesc(e.target.value)}
+          placeholder="What's it for? e.g. Dinner at Toit"
+          className="flex-1 bg-transparent outline-none font-body text-[16px] text-ink placeholder:text-secondary"
+        />
+      </div>
 
       {/* date chip — invisible native input on top so a tap opens the picker */}
       <div className="flex justify-center mt-3">
